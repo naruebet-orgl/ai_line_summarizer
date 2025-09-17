@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import HrAllowlist from '@/lib/models/HrAllowlist';
 import bcrypt from 'bcryptjs';
 
 export async function POST(request: NextRequest) {
@@ -18,19 +17,20 @@ export async function POST(request: NextRequest) {
     }
 
     // For MVP, we'll use a simple hardcoded check
-    // In production, you'd check against HrAllowlist collection
-    if (email === 'admin@company.com' && password === 'admin123') {
+    // In production, you'd implement proper user authentication
+    if ((email === 'admin@linechat.ai' && password === 'summarizer123') ||
+        (email === 'admin@company.com' && password === 'admin123')) {
       const response = NextResponse.json({
         success: true,
         user: {
-          email: 'admin@company.com',
-          name: 'HR Admin',
-          roles: ['hr_viewer']
+          email: email,
+          name: 'AI Analytics Admin',
+          roles: ['analytics_viewer']
         }
       });
 
       // Set a simple session cookie (in production, use proper JWT)
-      response.cookies.set('hr-session', 'authenticated', {
+      response.cookies.set('chat-session', 'authenticated', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',

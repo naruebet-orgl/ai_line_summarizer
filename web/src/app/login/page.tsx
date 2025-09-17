@@ -44,10 +44,10 @@ export default function LoginPage() {
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            HR Dashboard Login
+            LINE Chat Summarizer Login
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Complaint Management System
+            AI-Powered Chat Analytics Platform
           </p>
         </div>
         
@@ -109,8 +109,8 @@ export default function LoginPage() {
               
               <div className="text-sm text-center text-gray-600">
                 <p>Demo credentials:</p>
-                <p>Email: admin@company.com</p>
-                <p>Password: admin123</p>
+                <p>Email: admin@linechat.ai</p>
+                <p>Password: summarizer123</p>
               </div>
             </form>
           </CardContent>

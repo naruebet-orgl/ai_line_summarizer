@@ -56,7 +56,7 @@ export default function DashboardPage() {
       }
 
       const data = await response.json();
-      const sessionData = data[0]?.result?.data?.json;
+      const sessionData = data[0]?.result?.data;
 
       if (sessionData && sessionData.sessions) {
         setSessions(sessionData.sessions);
@@ -249,7 +249,7 @@ export default function DashboardPage() {
             <div className="space-y-3">
               {sessions.map((session) => (
                 <div
-                  key={session._id}
+                  key={session.session_id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   <div className="flex-1">

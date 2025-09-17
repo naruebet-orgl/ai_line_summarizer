@@ -14,23 +14,97 @@ const sessionsRouter = router({
       page: z.number().default(1),
       limit: z.number().max(100).default(20),
       status: z.enum(['active', 'closed', 'summarizing']).optional(),
-      roomId: z.string().optional()
+      roomId: z.string().optional(),
+      room_type: z.enum(['individual', 'group']).optional()
     }))
     .query(async ({ input }) => {
-      const { page, limit, status, roomId } = input;
+      const { page, limit, status, roomId, room_type } = input;
       const skip = (page - 1) * limit;
 
-      const filter = {};
+      let filter = {};
       if (status) filter.status = status;
       if (roomId) filter.room_id = roomId;
 
-      const sessions = await ChatSession.find(filter)
+      // Get all sessions first with populated room data
+      let query = ChatSession.find(filter)
         .populate('room_id', 'name type line_room_id')
         .populate('summary_id', 'content key_topics analysis')
-        .sort({ start_time: -1 })
-        .limit(limit)
-        .skip(skip);
+        .sort({ start_time: -1 });
 
+      // If room_type is specified, filter using aggregate pipeline
+      if (room_type) {
+        const sessions = await ChatSession.aggregate([
+          {
+            $lookup: {
+              from: 'rooms',
+              localField: 'room_id',
+              foreignField: '_id',
+              as: 'room_data'
+            }
+          },
+          {
+            $match: {
+              'room_data.type': room_type,
+              ...(status && { status })
+            }
+          },
+          {
+            $lookup: {
+              from: 'summaries',
+              localField: 'summary_id',
+              foreignField: '_id',
+              as: 'summary_data'
+            }
+          },
+          { $sort: { start_time: -1 } },
+          { $skip: skip },
+          { $limit: limit }
+        ]);
+
+        const total = await ChatSession.aggregate([
+          {
+            $lookup: {
+              from: 'rooms',
+              localField: 'room_id',
+              foreignField: '_id',
+              as: 'room_data'
+            }
+          },
+          {
+            $match: {
+              'room_data.type': room_type,
+              ...(status && { status })
+            }
+          },
+          { $count: "total" }
+        ]);
+
+        return {
+          sessions: sessions.map(session => {
+            const room = session.room_data[0];
+            const summary = session.summary_data[0];
+            return {
+              ...session,
+              session_id: session.session_id || session._id.toString(),
+              room_name: room?.name,
+              room_type: room?.type,
+              line_room_id: room?.line_room_id,
+              message_count: session.message_logs?.length || 0,
+              has_summary: !!summary,
+              room_id: room
+            };
+          }),
+          pagination: {
+            page,
+            limit,
+            total: total[0]?.total || 0,
+            pages: Math.ceil((total[0]?.total || 0) / limit)
+          }
+        };
+      }
+
+      // Regular query without room_type filter
+      const sessions = await query.limit(limit).skip(skip);
       const total = await ChatSession.countDocuments(filter);
 
       return {
