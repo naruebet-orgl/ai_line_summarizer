@@ -1,0 +1,23 @@
+[phases.setup]
+nixPkgs = ["nodejs-18_x", "npm-9_x"]
+
+[phases.install]
+cmds = [
+  "echo 'Installing backend dependencies...'",
+  "npm ci --only=production"
+]
+
+[phases.build]
+cmds = [
+  "echo 'Backend service - no build step required'",
+  "echo 'Express.js server ready for deployment'"
+]
+
+[start]
+cmd = "npm start"
+
+[variables]
+NODE_ENV = "production"
+
+[build]
+cmd = "echo 'Skipping build - backend service ready'"

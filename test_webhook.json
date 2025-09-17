@@ -1,0 +1,18 @@
+{
+  "events": [
+    {
+      "type": "message",
+      "message": {
+        "type": "text",
+        "id": "test-message-1",
+        "text": "Hello! This is a test message for the chat summarizer."
+      },
+      "timestamp": 1726555200000,
+      "source": {
+        "type": "user",
+        "userId": "test-user-123"
+      },
+      "replyToken": "test-reply-token"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/trpc/[trpc]/route": "app/api/trpc/[trpc]/route.js",
+  "/dashboard/sessions/[sessionId]/page": "app/dashboard/sessions/[sessionId]/page.js",
+  "/dashboard/page": "app/dashboard/page.js"
+}

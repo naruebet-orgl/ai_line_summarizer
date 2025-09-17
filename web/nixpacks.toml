@@ -1,0 +1,20 @@
+[phases.setup]
+nixPkgs = ["nodejs-18_x", "npm-9_x"]
+
+[phases.install]
+cmds = [
+  "echo 'Installing frontend dependencies...'",
+  "npm ci"
+]
+
+[phases.build]
+cmds = [
+  "echo 'Building Next.js application...'",
+  "npm run build"
+]
+
+[start]
+cmd = "npm start"
+
+[variables]
+NODE_ENV = "production"

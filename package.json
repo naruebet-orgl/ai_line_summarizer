@@ -1,0 +1,19 @@
+{
+  "name": "line-chat-summarizer-ai",
+  "version": "1.0.0",
+  "description": "LINE Chat Summarizer with AI - Adapted from IRC Complaint System",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:web\" \"npm run dev:backend\"",
+    "dev:web": "cd web && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "build": "cd web && npm run build",
+    "start": "cd web && npm start",
+    "install:all": "npm install && cd web && npm install && cd ../backend && npm install",
+    "setup": "npm run install:all && echo '\\nSetup complete! Fill in .env.local and run: npm run dev'",
+    "seed": "cd backend && npm run seed"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
