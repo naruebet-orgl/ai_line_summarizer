@@ -40,14 +40,14 @@ export default function SessionDetailPage() {
       setError(null)
 
       // Fetch actual session data from backend
-      const response = await fetch(`/api/trpc/sessions.get?batch=1&input={"0":{"json":{"sessionId":"${sessionId}"}}}`)
+      const response = await fetch(`/api/trpc/sessions.get?input=${encodeURIComponent(JSON.stringify({"sessionId":sessionId}))}`)
 
       if (!response.ok) {
         throw new Error(`Failed to fetch session: ${response.status}`)
       }
 
       const data = await response.json()
-      const sessionData = data[0]?.result?.data?.json
+      const sessionData = data?.result?.data
 
       if (sessionData) {
         setSession(sessionData)

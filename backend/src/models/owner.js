@@ -106,9 +106,7 @@ const OwnerSchema = new Schema({
   toObject: { getters: true }
 });
 
-// Indexes
-OwnerSchema.index({ email: 1 });
-OwnerSchema.index({ line_channel_id: 1 });
+// Indexes are handled by unique: true constraints above
 
 // Instance methods
 OwnerSchema.methods.increment_usage = function(field, amount = 1) {

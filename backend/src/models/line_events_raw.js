@@ -37,8 +37,7 @@ const LineEventsRawSchema = new Schema({
   versionKey: false
 });
 
-// TTL index for automatic cleanup after 60 days
-LineEventsRawSchema.index({ received_at: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 60 });
+// TTL index is handled by index property in field definition above
 
 // Static methods
 LineEventsRawSchema.statics.logEvent = async function(eventId, eventType, userId, payload) {

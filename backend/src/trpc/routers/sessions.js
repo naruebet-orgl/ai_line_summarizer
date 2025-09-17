@@ -124,9 +124,18 @@ const sessionsRouter = router({
       sessionId: z.string()
     }))
     .query(async ({ input }) => {
-      const session = await ChatSession.findById(input.sessionId)
-        .populate('room_id', 'name type line_room_id owner_id')
-        .populate('summary_id');
+      // Try to find by MongoDB ObjectId first, then by session_id field
+      let session = null;
+      try {
+        session = await ChatSession.findById(input.sessionId)
+          .populate('room_id', 'name type line_room_id owner_id')
+          .populate('summary_id');
+      } catch (error) {
+        // If not a valid ObjectId, try finding by session_id field
+        session = await ChatSession.findOne({ session_id: input.sessionId })
+          .populate('room_id', 'name type line_room_id owner_id')
+          .populate('summary_id');
+      }
 
       if (!session) {
         throw new Error('Session not found');

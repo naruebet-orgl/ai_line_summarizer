@@ -136,7 +136,7 @@ ChatSessionSchema.index({ status: 1, start_time: -1 });
 ChatSessionSchema.index({ room_id: 1, start_time: -1 });
 ChatSessionSchema.index({ owner_id: 1, start_time: -1 });
 ChatSessionSchema.index({ line_room_id: 1, status: 1 });
-ChatSessionSchema.index({ session_id: 1 }, { unique: true });
+// session_id index is handled by unique: true constraint above
 
 // Instance methods
 ChatSessionSchema.methods.add_message_log = function(direction, messageType, message, lineMessageId = null, imageGridFSId = null) {
