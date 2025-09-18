@@ -87,7 +87,8 @@ try {
   
   console.log('✅ tRPC API routes enabled at /api/trpc');
 } catch (error) {
-  console.log('⏳ tRPC routes disabled - missing dependencies. Install @trpc/server, zod, mongoose, nanoid to enable.');
+  console.log('⏳ tRPC routes disabled - error:', error.message);
+  console.log('❌ Full error:', error);
 }
 
 // API Routes
