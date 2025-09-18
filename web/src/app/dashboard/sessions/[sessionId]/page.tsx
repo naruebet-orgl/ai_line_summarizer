@@ -11,13 +11,26 @@ import Link from 'next/link'
 
 interface ChatSession {
   session_id: string
-  room_id: string
+  room_id: {
+    _id: string
+    line_room_id: string
+    name: string
+    type: string
+  } | string
   room_name?: string
   status: 'active' | 'closed' | 'summarizing'
-  message_count: number
+  message_count?: number
   start_time: string
   end_time?: string
-  participants: string[]
+  participants?: string[]
+  message_logs?: Array<{
+    timestamp: string
+    direction: string
+    message_type: string
+    message: string
+    line_message_id: string
+    image_grid_fs_id: string | null
+  }>
   summary?: {
     content: string
     created_at: string
@@ -92,7 +105,7 @@ export default function SessionDetailPage() {
       setActionLoading('ending')
 
       // First generate summary if session has enough messages
-      if (session && session.message_count >= 1) {
+      if (session && (session.message_logs?.length || 0) >= 1) {
         const summaryResponse = await fetch(`/api/trpc/sessions.generateSummary`, {
           method: 'POST',
           headers: {
@@ -238,7 +251,7 @@ export default function SessionDetailPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500 mb-1">Messages</p>
-                <p className="text-2xl font-bold text-blue-600">{session.message_count}</p>
+                <p className="text-2xl font-bold text-blue-600">{session.message_logs?.length || 0}</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500 mb-1">Participants</p>
