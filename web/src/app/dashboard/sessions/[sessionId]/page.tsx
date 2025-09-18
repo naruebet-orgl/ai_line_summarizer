@@ -12,6 +12,7 @@ import Link from 'next/link'
 interface ChatSession {
   session_id: string
   room_id: string
+  room_name?: string
   status: 'active' | 'closed' | 'summarizing'
   message_count: number
   start_time: string
@@ -233,7 +234,7 @@ export default function SessionDetailPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500 mb-1">Room</p>
-                <p className="text-sm">{session.room_id?.name || session.room_name || 'Unknown Room'}</p>
+                <p className="text-sm">{session.room_name || 'Unknown Room'}</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500 mb-1">Messages</p>
