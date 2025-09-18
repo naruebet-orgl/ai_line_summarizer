@@ -4,6 +4,8 @@ nixPkgs = ["nodejs-18_x", "npm-9_x"]
 [phases.install]
 cmds = [
   "echo 'Installing frontend dependencies...'",
+  "ls -la",
+  "pwd",
   "npm ci"
 ]
 

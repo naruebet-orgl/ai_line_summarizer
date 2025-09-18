@@ -1,0 +1,25 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "echo 'This is a monorepo. Deploy individual services from their directories.'"
+
+[[services]]
+name = "backend"
+source = "backend/"
+
+[services.build]
+builder = "NIXPACKS"
+
+[services.deploy]
+startCommand = "npm start"
+
+[[services]]
+name = "frontend"
+source = "web/"
+
+[services.build]
+builder = "NIXPACKS"
+
+[services.deploy]
+startCommand = "npm start"

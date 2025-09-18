@@ -1,0 +1,13 @@
+../web/
+../docs/
+../package.json
+../.env.example
+../next.config.js
+../postcss.config.js
+../tailwind.config.js
+../tsconfig.json
+../README.md
+../Makefile
+../CLAUDE.md
+../.git/
+../.claude/
