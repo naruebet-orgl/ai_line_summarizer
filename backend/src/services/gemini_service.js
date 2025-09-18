@@ -30,11 +30,15 @@ class GeminiService {
     const startTime = Date.now();
 
     try {
+      // Fetch messages from Message collection instead of message_logs
+      const { Message } = require('../models');
+      const messages = await Message.get_session_messages(session._id, 1000); // Get all messages for session
+
       // Prepare conversation context
-      const conversationText = this.prepare_conversation_text(session);
+      const conversationText = this.prepare_conversation_text_from_messages(messages);
 
       // Generate summary prompt
-      const prompt = this.build_summary_prompt(conversationText, session);
+      const prompt = this.build_summary_prompt(conversationText, session, messages.length);
 
       // Call Gemini API
       const result = await this.model.generateContent(prompt);
@@ -81,37 +85,46 @@ class GeminiService {
   }
 
   /**
-   * Prepare conversation text from session message logs
+   * Prepare conversation text from Message collection
    */
-  prepare_conversation_text(session) {
-    const messages = session.message_logs
+  prepare_conversation_text_from_messages(messages) {
+    return messages
       .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-      .map(log => {
-        const time = new Date(log.timestamp).toLocaleTimeString();
-        const speaker = log.direction === 'user' ? 'User' : 'Bot';
+      .map(msg => {
+        const time = new Date(msg.timestamp).toLocaleTimeString();
+        const speaker = this.getSpeakerName(msg);
 
-        if (log.message_type === 'text') {
-          return `[${time}] ${speaker}: ${log.message}`;
+        if (msg.message_type === 'text') {
+          return `[${time}] ${speaker}: ${msg.message}`;
         } else {
-          return `[${time}] ${speaker}: [${log.message_type.toUpperCase()}] ${log.message}`;
+          return `[${time}] ${speaker}: [${msg.message_type.toUpperCase()}] ${msg.message}`;
         }
       })
-      .join('\\n');
+      .join('\n');
+  }
 
-    return messages;
+  /**
+   * Get speaker name from message data
+   */
+  getSpeakerName(msg) {
+    if (msg.direction === 'bot') return 'Bot';
+    if (msg.direction === 'system') return 'System';
+    if (msg.user_name) return msg.user_name;
+    if (msg.sender_role === 'group_member') return 'Group Member';
+    return 'User';
   }
 
   /**
    * Build comprehensive prompt for Gemini
    */
-  build_summary_prompt(conversationText, session) {
+  build_summary_prompt(conversationText, session, messageCount) {
     return `You are an AI assistant specialized in analyzing and summarizing chat conversations. Please analyze the following conversation and provide a comprehensive summary.
 
 CONVERSATION DETAILS:
 - Session ID: ${session.session_id}
 - Room: ${session.room_name} (${session.room_type})
 - Duration: ${this.get_session_duration(session)}
-- Total Messages: ${session.message_logs.length}
+- Total Messages: ${messageCount}
 
 CONVERSATION:
 ${conversationText}

@@ -6,13 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, MessageCircle, Clock, Users, Sparkles } from 'lucide-react'
+import { ArrowLeft, MessageCircle, Clock, Users, Sparkles, Square, Zap } from 'lucide-react'
 import Link from 'next/link'
 
 interface ChatSession {
   session_id: string
   room_id: string
-  status: 'active' | 'completed' | 'ended'
+  status: 'active' | 'closed' | 'summarizing'
   message_count: number
   start_time: string
   end_time?: string
@@ -29,6 +29,7 @@ export default function SessionDetailPage() {
   const [session, setSession] = useState<ChatSession | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   useEffect(() => {
     fetchSession()
@@ -66,10 +67,10 @@ export default function SessionDetailPage() {
     switch (status) {
       case 'active':
         return 'bg-green-100 text-green-800'
-      case 'completed':
+      case 'closed':
         return 'bg-blue-100 text-blue-800'
-      case 'ended':
-        return 'bg-gray-100 text-gray-800'
+      case 'summarizing':
+        return 'bg-yellow-100 text-yellow-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
@@ -83,6 +84,71 @@ export default function SessionDetailPage() {
       hour: '2-digit',
       minute: '2-digit'
     })
+  }
+
+  const handleEndSession = async () => {
+    try {
+      setActionLoading('ending')
+
+      // First generate summary if session has enough messages
+      if (session && session.message_count >= 1) {
+        const summaryResponse = await fetch(`/api/trpc/sessions.generateSummary`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({"sessionId": sessionId})
+        })
+
+        if (!summaryResponse.ok) {
+          console.warn('Failed to generate summary before ending session')
+        }
+      }
+
+      // Then close the session
+      const response = await fetch(`/api/trpc/sessions.close`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({"sessionId": sessionId})
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to end session')
+      }
+
+      await fetchSession() // Refresh session data
+    } catch (err) {
+      console.error('Error ending session:', err)
+      setError(`Failed to end session: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleGenerateSummary = async () => {
+    try {
+      setActionLoading('summarizing')
+      const response = await fetch(`/api/trpc/sessions.generateSummary`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({"sessionId": sessionId})
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to generate summary')
+      }
+
+      await fetchSession() // Refresh session data
+    } catch (err) {
+      console.error('Error generating summary:', err)
+      setError(`Failed to generate summary: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   if (loading) {
@@ -166,8 +232,8 @@ export default function SessionDetailPage() {
                 </p>
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-500 mb-1">Room ID</p>
-                <p className="text-sm">{session.room_id}</p>
+                <p className="text-sm font-medium text-gray-500 mb-1">Room</p>
+                <p className="text-sm">{session.room_id?.name || session.room_name || 'Unknown Room'}</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500 mb-1">Messages</p>
@@ -175,7 +241,7 @@ export default function SessionDetailPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500 mb-1">Participants</p>
-                <p className="text-2xl font-bold text-green-600">{session.participants.length}</p>
+                <p className="text-2xl font-bold text-green-600">{session.participants?.length || 1}</p>
               </div>
             </div>
 
@@ -203,7 +269,7 @@ export default function SessionDetailPage() {
         </Card>
 
         {/* Participants */}
-        {session.participants.length > 0 && (
+        {session.participants && session.participants.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
@@ -262,6 +328,49 @@ export default function SessionDetailPage() {
             </CardContent>
           </Card>
         ) : null}
+
+        {/* Action Buttons */}
+        {session.status === 'active' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Session Actions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Button
+                  onClick={handleGenerateSummary}
+                  disabled={actionLoading !== null}
+                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700"
+                >
+                  {actionLoading === 'summarizing' ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <Zap className="h-4 w-4" />
+                  )}
+                  <span>
+                    {actionLoading === 'summarizing' ? 'Generating Summary...' : 'Generate Summary Now'}
+                  </span>
+                </Button>
+
+                <Button
+                  onClick={handleEndSession}
+                  disabled={actionLoading !== null}
+                  variant="destructive"
+                  className="flex items-center space-x-2"
+                >
+                  {actionLoading === 'ending' ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <Square className="h-4 w-4" />
+                  )}
+                  <span>
+                    {actionLoading === 'ending' ? 'Ending & Summarizing...' : 'End Session & Summarize'}
+                  </span>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
       </div>
     </div>

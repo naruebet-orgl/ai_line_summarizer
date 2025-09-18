@@ -7,7 +7,7 @@ const { Schema, model } = require('mongoose');
 
 const SummarySchema = new Schema({
   session_id: {
-    type: Schema.Types.ObjectId,
+    type: String,
     ref: 'ChatSession',
     required: true,
     description: 'Reference to the chat session'
@@ -26,7 +26,7 @@ const SummarySchema = new Schema({
   },
   content: {
     type: String,
-    required: true,
+    required: false,
     description: 'AI-generated summary content'
   },
   key_topics: [{

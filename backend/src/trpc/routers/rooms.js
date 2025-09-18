@@ -89,6 +89,153 @@ const roomsRouter = router({
       return roomsWithSessions;
     }),
 
+  // Get all groups the AI bot is in
+  getAiGroups: loggedProcedure
+    .input(z.object({
+      ownerId: z.string().optional()
+    }))
+    .query(async ({ input }) => {
+      // Get owner ID - use provided or get first owner
+      let ownerId = input.ownerId;
+      if (!ownerId) {
+        const { Owner } = require('../../models');
+        const owner = await Owner.findOne();
+        if (!owner) {
+          return { groups: [], total: 0 };
+        }
+        ownerId = owner._id;
+      }
+
+      const groups = await Room.get_ai_groups(ownerId);
+
+      return {
+        groups: groups.map(group => ({
+          room_id: group._id,
+          line_group_id: group.line_room_id,
+          group_name: group.name,
+          statistics: group.statistics,
+          created_at: group.created_at,
+          last_activity: group.statistics.last_activity_at
+        })),
+        total: groups.length,
+        owner_id: ownerId
+      };
+    }),
+
+  // Get groups with recent activity
+  getActiveGroups: loggedProcedure
+    .input(z.object({
+      ownerId: z.string().optional(),
+      minutesAgo: z.number().max(1440).default(60) // Max 24 hours
+    }))
+    .query(async ({ input }) => {
+      const { minutesAgo } = input;
+
+      // Get owner ID
+      let ownerId = input.ownerId;
+      if (!ownerId) {
+        const { Owner } = require('../../models');
+        const owner = await Owner.findOne();
+        if (!owner) {
+          return { groups: [], total: 0, timespan: { minutes: minutesAgo } };
+        }
+        ownerId = owner._id;
+      }
+
+      const groups = await Room.get_active_groups(ownerId, minutesAgo);
+      const since = new Date(Date.now() - minutesAgo * 60 * 1000);
+
+      return {
+        groups: groups.map(group => ({
+          room_id: group._id,
+          line_group_id: group.line_room_id,
+          group_name: group.name,
+          statistics: group.statistics,
+          last_activity: group.statistics.last_activity_at
+        })),
+        total: groups.length,
+        timespan: {
+          minutes: minutesAgo,
+          since: since
+        },
+        owner_id: ownerId
+      };
+    }),
+
+  // Get specific group by LINE group ID
+  getGroupByLineId: loggedProcedure
+    .input(z.object({
+      lineGroupId: z.string(),
+      ownerId: z.string().optional()
+    }))
+    .query(async ({ input }) => {
+      const { lineGroupId } = input;
+
+      // Get owner ID
+      let ownerId = input.ownerId;
+      if (!ownerId) {
+        const { Owner } = require('../../models');
+        const owner = await Owner.findOne();
+        if (!owner) {
+          throw new Error('No owner found');
+        }
+        ownerId = owner._id;
+      }
+
+      const group = await Room.get_group_by_line_id(lineGroupId, ownerId);
+
+      if (!group) {
+        throw new Error('Group not found');
+      }
+
+      return {
+        room_id: group._id,
+        line_group_id: group.line_room_id,
+        group_name: group.name,
+        type: group.type,
+        is_active: group.is_active,
+        statistics: group.statistics,
+        settings: group.settings,
+        created_at: group.created_at,
+        updated_at: group.updated_at
+      };
+    }),
+
+  // Get group statistics summary
+  getGroupStats: loggedProcedure
+    .input(z.object({
+      ownerId: z.string().optional()
+    }))
+    .query(async ({ input }) => {
+      // Get owner ID
+      let ownerId = input.ownerId;
+      if (!ownerId) {
+        const { Owner } = require('../../models');
+        const owner = await Owner.findOne();
+        if (!owner) {
+          return {
+            totalGroups: 0,
+            totalSessions: 0,
+            totalMessages: 0,
+            totalSummaries: 0,
+            avgMessagesPerGroup: 0
+          };
+        }
+        ownerId = owner._id;
+      }
+
+      const stats = await Room.get_group_stats(ownerId);
+
+      return stats[0] || {
+        totalGroups: 0,
+        totalSessions: 0,
+        totalMessages: 0,
+        totalSummaries: 0,
+        avgMessagesPerGroup: 0,
+        mostActiveGroup: 0
+      };
+    }),
+
   // Update room settings (admin only)
   updateSettings: adminProcedure
     .input(z.object({

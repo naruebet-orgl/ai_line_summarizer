@@ -5,7 +5,8 @@
 
 const { z } = require('zod');
 const { router, loggedProcedure, adminProcedure } = require('../index');
-const { ChatSession, Room, Summary } = require('../../models');
+const { ChatSession, Room, Summary, Owner } = require('../../models');
+const GeminiService = require('../../services/gemini_service');
 
 const sessionsRouter = router({
   // Get all sessions with pagination
@@ -204,6 +205,56 @@ const sessionsRouter = router({
           };
           return acc;
         }, {})
+      };
+    }),
+
+  // Generate summary manually (admin only)
+  generateSummary: adminProcedure
+    .input(z.object({
+      sessionId: z.string()
+    }))
+    .mutation(async ({ input }) => {
+      let session = null;
+      try {
+        session = await ChatSession.findById(input.sessionId)
+          .populate('room_id', 'name type line_room_id owner_id')
+          .populate('owner_id');
+      } catch (error) {
+        session = await ChatSession.findOne({ session_id: input.sessionId })
+          .populate('room_id', 'name type line_room_id owner_id')
+          .populate('owner_id');
+      }
+
+      if (!session) {
+        throw new Error('Session not found');
+      }
+
+      if (session.status !== 'active') {
+        throw new Error('Can only generate summary for active sessions');
+      }
+
+      if (session.message_logs.length < 1) {
+        throw new Error('Session needs at least 1 message to generate a summary');
+      }
+
+      // Create summary record - use actual MongoDB ObjectId
+      const summary = await Summary.create_summary(
+        session._id, // This is already the correct MongoDB ObjectId from findById/findOne
+        session.room_id._id,
+        session.owner_id._id || session.room_id.owner_id
+      );
+
+      // Generate AI summary
+      const geminiService = new GeminiService();
+      await geminiService.generate_chat_summary(session, summary);
+
+      // Attach summary to session
+      await session.attach_summary(summary._id);
+
+      return {
+        success: true,
+        message: 'Summary generated successfully',
+        summary_id: summary._id
       };
     })
 });

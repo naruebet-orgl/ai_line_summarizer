@@ -3,7 +3,7 @@
  * Creates context for tRPC procedures with database access
  */
 
-const { Employee, ComplaintSession, LineEventsRaw, HrAllowlist, AIComplaintTag } = require('../models');
+const { ChatSession, Room, Summary, Owner, Message } = require('../models');
 
 /**
  * Creates tRPC context with database models
@@ -16,11 +16,11 @@ const createContext = (opts) => {
   return {
     // Database models
     models: {
-      Employee,
-      ComplaintSession,
-      LineEventsRaw,
-      HrAllowlist,
-      AIComplaintTag
+      ChatSession,
+      Room,
+      Summary,
+      Owner,
+      Message
     },
     
     // Request context (if available)

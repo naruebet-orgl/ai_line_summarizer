@@ -95,6 +95,53 @@ RoomSchema.methods.get_room_summary = function() {
 };
 
 // Static methods
+// Get all groups the AI bot is in
+RoomSchema.statics.get_ai_groups = function(ownerId) {
+  return this.find({
+    owner_id: ownerId,
+    type: 'group',
+    is_active: true
+  }).select('line_room_id name statistics created_at updated_at').sort({ 'statistics.last_activity_at': -1 });
+};
+
+// Get active groups with recent activity
+RoomSchema.statics.get_active_groups = function(ownerId, minutesAgo = 60) {
+  const since = new Date(Date.now() - minutesAgo * 60 * 1000);
+  return this.find({
+    owner_id: ownerId,
+    type: 'group',
+    is_active: true,
+    'statistics.last_activity_at': { $gte: since }
+  }).select('line_room_id name statistics').sort({ 'statistics.last_activity_at': -1 });
+};
+
+// Get group by LINE group ID
+RoomSchema.statics.get_group_by_line_id = function(lineGroupId, ownerId) {
+  return this.findOne({
+    line_room_id: lineGroupId,
+    owner_id: ownerId,
+    type: 'group'
+  });
+};
+
+// Get group statistics
+RoomSchema.statics.get_group_stats = function(ownerId) {
+  return this.aggregate([
+    { $match: { owner_id: ownerId, type: 'group', is_active: true } },
+    {
+      $group: {
+        _id: null,
+        totalGroups: { $sum: 1 },
+        totalSessions: { $sum: '$statistics.total_sessions' },
+        totalMessages: { $sum: '$statistics.total_messages' },
+        totalSummaries: { $sum: '$statistics.total_summaries' },
+        avgMessagesPerGroup: { $avg: '$statistics.total_messages' },
+        mostActiveGroup: { $max: '$statistics.total_messages' }
+      }
+    }
+  ]);
+};
+
 RoomSchema.statics.find_or_create_room = async function(ownerId, lineRoomId, name, type) {
   console.log(`🏠 Finding or creating room: ${name} (${lineRoomId})`);
 

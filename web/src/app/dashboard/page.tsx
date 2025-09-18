@@ -49,7 +49,11 @@ export default function DashboardPage() {
       if (filter !== 'all') params.append('status', filter);
 
       // Fetch real sessions from backend
-      const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{${filter !== 'all' ? `"status":"${filter}",` : ''}"limit":50}}}`);
+      const inputObj = {
+        limit: 50,
+        ...(filter !== 'all' && { status: filter })
+      };
+      const response = await fetch(`/api/trpc/sessions.list?batch=1&input=${encodeURIComponent(JSON.stringify({"0":{"json":inputObj}}))}`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch sessions: ${response.status}`);
