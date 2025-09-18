@@ -8,6 +8,7 @@ const nextConfig = {
     LINE_CHANNEL_ACCESS_TOKEN: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
+    BACKEND_URL: process.env.BACKEND_URL,
   },
   webpack: (config) => {
     config.experiments = {
