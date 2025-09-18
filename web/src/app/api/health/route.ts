@@ -1,17 +1,14 @@
 import { NextResponse } from 'next/server';
-import mongoose from 'mongoose';
-import connectDB from '@/lib/mongodb';
 
 export async function GET() {
   try {
-    await connectDB();
-
     const health = {
       status: 'OK',
+      service: 'LINE Chat Summarizer Frontend',
       timestamp: new Date().toISOString(),
-      database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
       environment: process.env.NODE_ENV || 'development',
-      version: '1.0.0'
+      version: '1.0.0',
+      uptime: process.uptime()
     };
 
     return NextResponse.json(health);
@@ -19,6 +16,7 @@ export async function GET() {
     return NextResponse.json(
       {
         status: 'ERROR',
+        service: 'LINE Chat Summarizer Frontend',
         timestamp: new Date().toISOString(),
         error: error instanceof Error ? error.message : 'Unknown error'
       },

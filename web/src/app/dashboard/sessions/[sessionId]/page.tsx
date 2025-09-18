@@ -147,6 +147,8 @@ export default function SessionDetailPage() {
   const handleGenerateSummary = async () => {
     try {
       setActionLoading('summarizing')
+      setError(null) // Clear any previous errors
+
       const response = await fetch(`/api/trpc/sessions.generateSummary`, {
         method: 'POST',
         headers: {
@@ -156,13 +158,15 @@ export default function SessionDetailPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to generate summary')
+        const errorText = await response.text()
+        throw new Error(`Failed to generate summary: ${response.status} ${errorText}`)
       }
 
       await fetchSession() // Refresh session data
     } catch (err) {
-      console.error('Error generating summary:', err)
-      setError(`Failed to generate summary: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      console.error('Error generating summary:', errorMessage)
+      setError(`Failed to generate summary: ${errorMessage}`)
     } finally {
       setActionLoading(null)
     }
@@ -225,6 +229,19 @@ export default function SessionDetailPage() {
           </Link>
         </Button>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <Card className="mb-6 border-red-200 bg-red-50">
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-2">
+              <div className="h-2 w-2 bg-red-500 rounded-full"></div>
+              <p className="text-red-700 text-sm font-medium">Error</p>
+            </div>
+            <p className="text-red-600 text-sm mt-1">{error}</p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6">
         {/* Session Overview */}
