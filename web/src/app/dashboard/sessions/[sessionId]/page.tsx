@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, MessageCircle, Clock, Users, Sparkles, Square, Zap } from 'lucide-react'
+import { ArrowLeft, MessageCircle, Clock, Users, Sparkles, Square, Zap, ScrollText } from 'lucide-react'
 import Link from 'next/link'
 
 interface ChatSession {
@@ -30,6 +30,9 @@ interface ChatSession {
     message: string
     line_message_id: string
     image_grid_fs_id: string | null
+    user_id?: string
+    user_name?: string
+    sender?: string
   }>
   summary?: {
     content: string
@@ -342,6 +345,61 @@ export default function SessionDetailPage() {
             </CardContent>
           </Card>
         ) : null}
+
+        {/* Chat History */}
+        {session.message_logs && session.message_logs.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <ScrollText className="h-5 w-5" />
+                <span>Chat History ({session.message_logs.length} messages)</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-96 overflow-y-auto space-y-3">
+                {session.message_logs.map((message, index) => (
+                  <div key={index} className="border-l-4 border-gray-200 pl-4 py-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center space-x-2">
+                        <Badge variant={message.direction === 'incoming' ? 'default' : 'secondary'} className="text-xs">
+                          {message.direction === 'incoming' ? 'Received' : 'Sent'}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {message.message_type}
+                        </Badge>
+                        {(message.user_name || message.sender || message.user_id) && (
+                          <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                            👤 {message.user_name || message.sender || message.user_id}
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {formatDate(message.timestamp)}
+                      </span>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-md">
+                      {(message.user_name || message.sender || message.user_id) && (
+                        <div className="text-xs text-gray-600 mb-1 font-medium">
+                          {message.user_name || message.sender || message.user_id}:
+                        </div>
+                      )}
+                      <p className="text-sm text-gray-800">
+                        {message.message}
+                      </p>
+                    </div>
+                    {message.image_grid_fs_id && (
+                      <div className="mt-2">
+                        <Badge variant="outline" className="text-xs">
+                          📷 Image attachment
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Action Buttons */}
         {session.status === 'active' && (
