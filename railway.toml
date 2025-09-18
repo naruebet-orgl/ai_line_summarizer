@@ -13,9 +13,6 @@ builder = "NIXPACKS"
 
 [services.deploy]
 startCommand = "npm start"
-healthcheckPath = "/health"
-healthcheckTimeout = 300
-restartPolicyType = "ON_FAILURE"
 
 [[services]]
 name = "frontend"
@@ -26,6 +23,3 @@ builder = "NIXPACKS"
 
 [services.deploy]
 startCommand = "npm start"
-healthcheckPath = "/api/health"
-healthcheckTimeout = 300
-restartPolicyType = "ON_FAILURE"

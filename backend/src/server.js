@@ -8,6 +8,7 @@ const config = require('./config');
 
 const PORT = config.app.port;
 const NODE_ENV = config.app.nodeEnv;
+const HOST = process.env.HOST || '0.0.0.0';
 
 /**
  * Start the HTTP server
@@ -16,11 +17,12 @@ const startServer = () => {
   console.log('🔧 Starting LINE Chat Summarizer AI Backend Server');
   console.log(`📋 Environment: ${NODE_ENV}`);
   console.log(`🔌 Port: ${PORT}`);
+  console.log(`🏠 Host: ${HOST}`);
   console.log(`🌐 Backend URL: ${config.app.backendUrl}`);
   console.log(`🎯 Frontend URL: ${config.app.frontendUrl}`);
   console.log(`🤖 LINE Bot: ${config.line.channelAccessToken ? 'Configured' : 'Not configured'}`);
-  
-  const server = app.listen(PORT, () => {
+
+  const server = app.listen(PORT, HOST, () => {
     console.log('✅ Server is running successfully!');
     console.log(`📡 Server listening on port ${PORT}`);
     console.log(`🔗 Server URL: ${config.app.backendUrl}`);
