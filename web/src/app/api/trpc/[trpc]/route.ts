@@ -10,13 +10,19 @@ export async function POST(request: NextRequest) {
 
 async function handleTRPCRequest(request: NextRequest) {
   const url = new URL(request.url)
-  const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001'
+
+  // For production, use the Railway backend URL directly
+  // This works around Next.js build-time env var limitations
+  const backendUrl = process.env.NODE_ENV === 'production'
+    ? 'https://backend-production-8d6f.up.railway.app'
+    : (process.env.BACKEND_URL || 'http://localhost:3001')
 
   // Forward the request to backend
   const backendTRPCUrl = `${backendUrl}/api/trpc${url.pathname.replace('/api/trpc', '')}${url.search}`
 
   console.log(`Proxying TRPC request to: ${backendTRPCUrl}`)
   console.log(`Backend URL configured as: ${backendUrl}`)
+  console.log(`NODE_ENV: ${process.env.NODE_ENV}`)
 
   try {
     const backendResponse = await fetch(backendTRPCUrl, {
