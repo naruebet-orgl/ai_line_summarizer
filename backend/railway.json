@@ -19,7 +19,7 @@
         "FRONTEND_URL": "https://summarizer.orglai.com",
         "BACKEND_URL": "https://backend-production-8d6f.up.railway.app",
         "CORS_ORIGIN": "https://summarizer.orglai.com",
-        "MONGODB_URI": "mongodb+srv://ai_db_user:jiMPUDBcadm9jsK9@aisummarizer.ka0psxc.mongodb.net/line_chat_summarizer?retryWrites=true&w=majority&appName=aisummarizer",
+        "MONGODB_URI": "disabled",
         "MONGODB_DB_NAME": "line_chat_summarizer",
         "LINE_CHANNEL_ID": "2008126969",
         "LINE_CHANNEL_SECRET": "18289c53b438f37f0a37d04c8014acb2",
