@@ -38,15 +38,15 @@ const config = {
   app: {
     port: process.env.PORT || 3001,
     nodeEnv: process.env.NODE_ENV || 'development',
-    frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
-    backendUrl: process.env.BACKEND_URL || 'http://localhost:3001'
+    frontendUrl: process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://summarizer.orglai.com' : 'http://localhost:3000'),
+    backendUrl: process.env.BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://backend-production-8d6f.up.railway.app' : 'http://localhost:3001')
   },
 
   // CORS
   cors: {
     origin: (() => {
       // Get the raw cors origin value
-      let corsOrigin = process.env.CORS_ORIGIN || process.env.FRONTEND_URL || 'http://localhost:3000';
+      let corsOrigin = process.env.CORS_ORIGIN || process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://summarizer.orglai.com' : 'http://localhost:3000');
       
       // Handle array-like strings from Railway environment variables
       if (typeof corsOrigin === 'string') {
