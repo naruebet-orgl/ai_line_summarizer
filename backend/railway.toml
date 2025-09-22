@@ -9,7 +9,6 @@ restartPolicyType = "ON_FAILURE"
 
 [variables]
 NODE_ENV = "production"
-PORT = "3001"
 HOST = "0.0.0.0"
 FRONTEND_URL = "https://summarizer.orglai.com"
 BACKEND_URL = "https://backend-production-8d6f.up.railway.app"
