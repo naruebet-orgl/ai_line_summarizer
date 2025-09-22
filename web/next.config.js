@@ -10,6 +10,22 @@ const nextConfig = {
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
     BACKEND_URL: process.env.BACKEND_URL,
   },
+  generateBuildId: async () => {
+    return `build-${Date.now()}`
+  },
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+          },
+        ],
+      },
+    ]
+  },
   webpack: (config) => {
     config.experiments = {
       ...config.experiments,

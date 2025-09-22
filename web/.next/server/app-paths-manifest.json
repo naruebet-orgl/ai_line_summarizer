@@ -3,9 +3,9 @@
   "/api/auth/login/route": "app/api/auth/login/route.js",
   "/api/health/route": "app/api/health/route.js",
   "/api/trpc/[trpc]/route": "app/api/trpc/[trpc]/route.js",
-  "/login/page": "app/login/page.js",
   "/page": "app/page.js",
-  "/dashboard/page": "app/dashboard/page.js",
+  "/login/page": "app/login/page.js",
   "/dashboard/groups/page": "app/dashboard/groups/page.js",
-  "/dashboard/sessions/[sessionId]/page": "app/dashboard/sessions/[sessionId]/page.js"
+  "/dashboard/sessions/[sessionId]/page": "app/dashboard/sessions/[sessionId]/page.js",
+  "/dashboard/page": "app/dashboard/page.js"
 }
