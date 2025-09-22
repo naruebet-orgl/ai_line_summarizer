@@ -15,6 +15,9 @@ async function handleTRPCRequest(request: NextRequest) {
   // Forward the request to backend
   const backendTRPCUrl = `${backendUrl}/api/trpc${url.pathname.replace('/api/trpc', '')}${url.search}`
 
+  console.log(`Proxying TRPC request to: ${backendTRPCUrl}`)
+  console.log(`Backend URL configured as: ${backendUrl}`)
+
   try {
     const backendResponse = await fetch(backendTRPCUrl, {
       method: request.method,
@@ -38,8 +41,15 @@ async function handleTRPCRequest(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error proxying to backend:', error)
+    console.error('Backend URL:', backendUrl)
+    console.error('Full URL attempted:', backendTRPCUrl)
     return NextResponse.json(
-      { error: 'Failed to connect to backend' },
+      {
+        error: 'Failed to connect to backend',
+        details: error instanceof Error ? error.message : 'Unknown error',
+        backendUrl: backendUrl,
+        attemptedUrl: backendTRPCUrl
+      },
       { status: 500 }
     )
   }

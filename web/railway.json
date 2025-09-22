@@ -14,7 +14,9 @@
     "production": {
       "variables": {
         "NODE_ENV": "production",
-        "PORT": "$PORT"
+        "PORT": "$PORT",
+        "FRONTEND_URL": "https://summarizer.orglai.com",
+        "BACKEND_URL": "https://backend-production-8d6f.up.railway.app"
       }
     }
   }
