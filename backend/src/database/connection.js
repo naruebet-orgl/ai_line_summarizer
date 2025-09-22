@@ -60,8 +60,9 @@ class DatabaseConnection {
           this.connect();
         }, 5000);
       } else {
-        console.error('💀 Maximum connection retries exceeded. Exiting...');
-        process.exit(1);
+        console.error('💀 Maximum connection retries exceeded.');
+        console.warn('⚠️  Running without database - only webhook echo will work');
+        // Don't exit, allow the app to run without database
       }
       
       return false;

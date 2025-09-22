@@ -22,9 +22,11 @@ if (!config.validateConfig()) {
 }
 
 // Connect to database
-dbConnection.connect().then(() => {
-  // Create indexes after successful connection
-  dbConnection.createIndexes();
+dbConnection.connect().then((connected) => {
+  // Create indexes only if successfully connected
+  if (connected) {
+    dbConnection.createIndexes();
+  }
 });
 
 // Security middleware
