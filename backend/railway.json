@@ -15,6 +15,7 @@
       "variables": {
         "NODE_ENV": "production",
         "HOST": "0.0.0.0",
+        "PORT": "$PORT",
         "FRONTEND_URL": "https://summarizer.orglai.com",
         "BACKEND_URL": "https://backend-production-8d6f.up.railway.app",
         "CORS_ORIGIN": "https://summarizer.orglai.com",
