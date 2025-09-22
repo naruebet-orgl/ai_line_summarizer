@@ -1,11 +1,8 @@
 [build]
-builder = "NIXPACKS"
-buildCommand = "npm run build"
+builder = "DOCKERFILE"
 
 [deploy]
-startCommand = "npm start -- --hostname 0.0.0.0 --port $PORT"
+startCommand = ""
 
 [variables]
 NODE_ENV = "production"
-HOSTNAME = "0.0.0.0"
-NIXPACKS_NO_CACHE = "1"

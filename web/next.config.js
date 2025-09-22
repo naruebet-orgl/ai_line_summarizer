@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   serverExternalPackages: ['mongoose', '@line/bot-sdk'],
+  output: 'standalone',
   env: {
     MONGODB_URI: process.env.MONGODB_URI,
     MONGODB_DB_NAME: process.env.MONGODB_DB_NAME,
