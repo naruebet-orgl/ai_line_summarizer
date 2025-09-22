@@ -2,7 +2,8 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "npm start -- --hostname 0.0.0.0"
+startCommand = "npm start -- --hostname 0.0.0.0 --port $PORT"
 
 [variables]
 NODE_ENV = "production"
+HOSTNAME = "0.0.0.0"
