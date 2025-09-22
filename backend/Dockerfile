@@ -19,9 +19,10 @@ USER nodeuser
 # Set environment variables
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
+ENV PORT=3001
 
-# Expose port (Railway sets PORT automatically)
-EXPOSE $PORT
+# Expose port
+EXPOSE 3001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
