@@ -1,11 +1,6 @@
 {
-  "/api/auth/login/route": "app/api/auth/login/route.js",
-  "/api/health/route": "app/api/health/route.js",
   "/api/trpc/[trpc]/route": "app/api/trpc/[trpc]/route.js",
-  "/_not-found/page": "app/_not-found/page.js",
-  "/login/page": "app/login/page.js",
-  "/page": "app/page.js",
   "/dashboard/groups/page": "app/dashboard/groups/page.js",
-  "/dashboard/page": "app/dashboard/page.js",
-  "/dashboard/sessions/[sessionId]/page": "app/dashboard/sessions/[sessionId]/page.js"
+  "/dashboard/sessions/[sessionId]/page": "app/dashboard/sessions/[sessionId]/page.js",
+  "/dashboard/page": "app/dashboard/page.js"
 }

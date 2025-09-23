@@ -1,17 +1,19 @@
 import type { Metadata } from "next";
-import { Roboto } from "next/font/google";
+import { Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 
-const roboto = Roboto({ 
-  subsets: ["latin"],
+const notoSansThai = Noto_Sans_Thai({
+  subsets: ["latin", "thai"],
   weight: ["300", "400", "500", "700"],
-  variable: "--font-roboto"
+  variable: "--font-noto-sans-thai"
 });
 
 export const metadata: Metadata = {
-  title: "LINE Chat Summarizer AI",
+  title: "ORGL Notes Bot",
   description: "AI-powered chat summarization dashboard for LINE Official Accounts",
 };
+
+// Force Railway redeploy - Updated UI with shadcn components
 
 export default function RootLayout({
   children,
@@ -19,9 +21,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${roboto.variable} font-sans`} suppressHydrationWarning>
-        <main className="min-h-screen bg-gray-50">
+    <html lang="th" suppressHydrationWarning>
+      <body className={`${notoSansThai.variable} font-sans`} suppressHydrationWarning>
+        <main className="min-h-screen bg-white">
           {children}
         </main>
       </body>

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { formatRelativeTime } from '@/lib/utils';
 import { Eye, RefreshCw, MessageSquare, Users, Brain, BarChart3 } from 'lucide-react';
 
@@ -32,7 +33,7 @@ export default function DashboardPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('all');
+  const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('active');
   const [stats, setStats] = useState({
     totalSessions: 0,
     activeSessions: 0,
@@ -48,11 +49,13 @@ export default function DashboardPage() {
       const params = new URLSearchParams();
       if (filter !== 'all') params.append('status', filter);
 
-      // Fetch real sessions from backend
+      // Fetch all sessions from backend (no server-side filtering)
       const inputObj = {
-        limit: 50,
-        ...(filter !== 'all' && { status: filter })
+        limit: 50
       };
+
+      console.log('🔍 Fetching sessions with filter:', filter, 'inputObj:', inputObj);
+
       const response = await fetch(`/api/trpc/sessions.list?batch=1&input=${encodeURIComponent(JSON.stringify({"0":{"json":inputObj}}))}`);
 
       if (!response.ok) {
@@ -63,13 +66,23 @@ export default function DashboardPage() {
       const sessionData = data[0]?.result?.data;
 
       if (sessionData && sessionData.sessions) {
-        setSessions(sessionData.sessions);
+        console.log('📊 Received sessions:', sessionData.sessions.map(s => ({ id: s.session_id, status: s.status })));
+        console.log('🔍 Filter applied:', filter, 'Received count:', sessionData.sessions.length);
+
+        // Apply client-side filtering
+        const allSessions = sessionData.sessions;
+        const filteredSessions = filter === 'all' ? allSessions :
+          allSessions.filter((s: ChatSession) => s.status === filter);
+
+        console.log('🔍 Filtered sessions count:', filteredSessions.length);
+
+        setSessions(filteredSessions);
         setStats({
-          totalSessions: sessionData.pagination?.total || sessionData.sessions.length,
-          activeSessions: sessionData.sessions.filter((s: ChatSession) => s.status === 'active').length,
-          totalSummaries: sessionData.sessions.filter((s: ChatSession) => s.has_summary).length,
-          avgMessagesPerSession: sessionData.sessions.length > 0 ?
-            Math.round(sessionData.sessions.reduce((acc: number, s: ChatSession) => acc + s.message_count, 0) / sessionData.sessions.length) : 0
+          totalSessions: allSessions.length,
+          activeSessions: allSessions.filter((s: ChatSession) => s.status === 'active').length,
+          totalSummaries: allSessions.filter((s: ChatSession) => s.has_summary).length,
+          avgMessagesPerSession: allSessions.length > 0 ?
+            Math.round(allSessions.reduce((acc: number, s: ChatSession) => acc + s.message_count, 0) / allSessions.length) : 0
         });
       } else {
         // No sessions found
@@ -109,7 +122,7 @@ export default function DashboardPage() {
       case 'summarizing':
         return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+        return 'bg-gray-100 text-gray-800 border-gray-300';
     }
   };
 
@@ -137,7 +150,7 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <Card>
+      <Card className="border-gray-300">
         <CardContent className="p-6">
           <div className="text-center">
             <p className="text-red-600 mb-4">Error: {error}</p>
@@ -153,92 +166,58 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Chat Summarizer Dashboard</h1>
-          <p className="text-gray-600">AI-powered LINE chat analysis and summarization</p>
-        </div>
-        <Button onClick={fetchSessions}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </Button>
-      </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="border-gray-300">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+            <CardTitle className="text-sm font-normal text-gray-600 flex items-center">
               <MessageSquare className="w-4 h-4 mr-2" />
               Total Sessions
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalSessions}</div>
+            <div className="text-xl font-normal">{stats.totalSessions}</div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-gray-300">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+            <CardTitle className="text-sm font-normal text-gray-600 flex items-center">
               <Users className="w-4 h-4 mr-2" />
               Active Sessions
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.activeSessions}</div>
+            <div className="text-xl font-normal text-green-600">{stats.activeSessions}</div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
-              <Brain className="w-4 h-4 mr-2" />
-              AI Summaries
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.totalSummaries}</div>
-          </CardContent>
-        </Card>
 
-        <Card>
+        <Card className="border-gray-300">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600 flex items-center">
+            <CardTitle className="text-sm font-normal text-gray-600 flex items-center">
               <BarChart3 className="w-4 h-4 mr-2" />
               Avg Messages
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">{stats.avgMessagesPerSession}</div>
+            <div className="text-xl font-normal text-purple-600">{stats.avgMessagesPerSession}</div>
           </CardContent>
         </Card>
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex space-x-1 bg-gray-200 p-1 rounded-lg w-fit">
-        {[
-          { key: 'all', label: 'All Sessions' },
-          { key: 'active', label: 'Active' },
-          { key: 'closed', label: 'Completed' }
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setFilter(tab.key as any)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              filter === tab.key
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs value={filter} onValueChange={(value) => setFilter(value as any)} className="w-fit">
+        <TabsList>
+          <TabsTrigger value="all">All Sessions</TabsTrigger>
+          <TabsTrigger value="active">Active</TabsTrigger>
+          <TabsTrigger value="closed">Completed</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* Sessions List */}
-      <Card>
+      <Card className="border-gray-300">
         <CardHeader>
           <CardTitle>
             {filter === 'all' ? 'All Chat Sessions' : `${filter.charAt(0).toUpperCase() + filter.slice(1)} Sessions`}
@@ -262,11 +241,11 @@ export default function DashboardPage() {
                         {getStatusIcon(session.status)}
                       </span>
                       <div>
-                        <h3 className="font-medium text-gray-900">
-                          {session.session_id}
+                        <h3 className="font-normal text-gray-900">
+                          {session.room_name || 'Unknown Room'}
                         </h3>
                         <p className="text-sm text-gray-500">
-                          {session.room_name} ({session.room_type}) •
+                          {session.session_id} • ({session.room_type}) •
                           {session.message_count} messages •
                           {formatRelativeTime(session.start_time)}
                           {session.has_summary && ' • ✨ Summarized'}
@@ -294,32 +273,6 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
-          <CardContent className="p-6 text-center">
-            <MessageSquare className="w-8 h-8 mx-auto mb-2 text-blue-600" />
-            <h3 className="font-medium text-gray-900 mb-1">Active Rooms</h3>
-            <p className="text-sm text-gray-500">View all active chat rooms</p>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
-          <CardContent className="p-6 text-center">
-            <Brain className="w-8 h-8 mx-auto mb-2 text-purple-600" />
-            <h3 className="font-medium text-gray-900 mb-1">AI Analytics</h3>
-            <p className="text-sm text-gray-500">View conversation insights</p>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
-          <CardContent className="p-6 text-center">
-            <BarChart3 className="w-8 h-8 mx-auto mb-2 text-green-600" />
-            <h3 className="font-medium text-gray-900 mb-1">Reports</h3>
-            <p className="text-sm text-gray-500">Generate summary reports</p>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }

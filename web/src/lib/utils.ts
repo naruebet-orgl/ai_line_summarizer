@@ -6,7 +6,16 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatDate(date: Date | string) {
+  if (!date) return 'Unknown date';
+
   const d = new Date(date);
+
+  // Check if date is valid
+  if (isNaN(d.getTime())) {
+    console.warn('Invalid date received:', date);
+    return 'Invalid date';
+  }
+
   return d.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
@@ -17,7 +26,16 @@ export function formatDate(date: Date | string) {
 }
 
 export function formatRelativeTime(date: Date | string) {
+  if (!date) return 'Unknown date';
+
   const d = new Date(date);
+
+  // Check if date is valid
+  if (isNaN(d.getTime())) {
+    console.warn('Invalid date received:', date);
+    return 'Invalid date';
+  }
+
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMins = Math.floor(diffMs / 60000);
@@ -28,7 +46,7 @@ export function formatRelativeTime(date: Date | string) {
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
-  
+
   return formatDate(date);
 }
 

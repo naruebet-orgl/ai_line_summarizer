@@ -4,7 +4,7 @@ export async function GET() {
   try {
     const health = {
       status: 'OK',
-      service: 'LINE Chat Summarizer Frontend',
+      service: 'ORGL Notes Bot Frontend',
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
       version: '1.0.0',
@@ -16,7 +16,7 @@ export async function GET() {
     return NextResponse.json(
       {
         status: 'ERROR',
-        service: 'LINE Chat Summarizer Frontend',
+        service: 'ORGL Notes Bot Frontend',
         timestamp: new Date().toISOString(),
         error: error instanceof Error ? error.message : 'Unknown error'
       },

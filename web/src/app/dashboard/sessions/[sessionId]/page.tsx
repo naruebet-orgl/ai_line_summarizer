@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ArrowLeft, MessageCircle, Clock, Users, Sparkles, Square, Zap, ScrollText } from 'lucide-react'
 import Link from 'next/link'
 
@@ -207,7 +208,7 @@ export default function SessionDetailPage() {
         <Card>
           <CardContent className="p-8">
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">Session Not Found</h2>
+              <h2 className="text-xl font-normal text-gray-900 mb-4">Session Not Found</h2>
               <p className="text-gray-600 mb-6">The session you're looking for doesn't exist or has been removed.</p>
               <Button asChild>
                 <Link href="/dashboard">Return to Dashboard</Link>
@@ -232,15 +233,11 @@ export default function SessionDetailPage() {
 
       {/* Error Display */}
       {error && (
-        <Card className="mb-6 border-red-200 bg-red-50">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-2">
-              <div className="h-2 w-2 bg-red-500 rounded-full"></div>
-              <p className="text-red-700 text-sm font-medium">Error</p>
-            </div>
-            <p className="text-red-600 text-sm mt-1">{error}</p>
-          </CardContent>
-        </Card>
+        <Alert variant="destructive" className="mb-6">
+          <AlertDescription>
+            {error}
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="grid gap-6">
@@ -271,11 +268,11 @@ export default function SessionDetailPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500 mb-1">Messages</p>
-                <p className="text-2xl font-bold text-blue-600">{session.message_logs?.length || 0}</p>
+                <p className="text-xl font-normal text-blue-600">{session.message_logs?.length || 0}</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500 mb-1">Participants</p>
-                <p className="text-2xl font-bold text-green-600">{session.participants?.length || 1}</p>
+                <p className="text-xl font-normal text-green-600">{session.participants?.length || 1}</p>
               </div>
             </div>
 
@@ -375,7 +372,7 @@ export default function SessionDetailPage() {
             <CardContent>
               <div className="max-h-96 overflow-y-auto space-y-3">
                 {session.message_logs.map((message, index) => (
-                  <div key={index} className="border-l-4 border-gray-200 pl-4 py-2">
+                  <div key={index} className="border-l-4 border-gray-300 pl-4 py-2">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center space-x-2">
                         <Badge variant={message.direction === 'incoming' ? 'default' : 'secondary'} className="text-xs">
