@@ -6,7 +6,6 @@
 const { z } = require('zod');
 const { router, loggedProcedure, adminProcedure } = require('../index');
 const { ChatSession, Room, Summary, Owner } = require('../../models');
-const GeminiService = require('../../services/gemini_service');
 
 const sessionsRouter = router({
   // Get all sessions with pagination
@@ -220,28 +219,56 @@ const sessionsRouter = router({
       sessionId: z.string()
     }))
     .mutation(async ({ input }) => {
+      console.log(`🎯 GenerateSummary called with sessionId: ${input.sessionId}`);
+
       let session = null;
       try {
         session = await ChatSession.findById(input.sessionId)
           .populate('room_id', 'name type line_room_id owner_id')
           .populate('owner_id');
+        console.log(`🔍 Session found by _id:`, session ? 'YES' : 'NO');
       } catch (error) {
+        console.log(`⚠️ findById failed, trying findOne with session_id`);
         session = await ChatSession.findOne({ session_id: input.sessionId })
           .populate('room_id', 'name type line_room_id owner_id')
           .populate('owner_id');
+        console.log(`🔍 Session found by session_id:`, session ? 'YES' : 'NO');
       }
 
       if (!session) {
         throw new Error('Session not found');
       }
 
-      if (session.status !== 'active') {
-        throw new Error('Can only generate summary for active sessions');
+      console.log(`📋 Session details: _id=${session._id}, session_id=${session.session_id}, status=${session.status}`);
+
+      // Allow summary generation for active or closed sessions (admin can regenerate summaries)
+      if (session.status !== 'active' && session.status !== 'closed') {
+        throw new Error(`Cannot generate summary for sessions with status: ${session.status}`);
       }
 
-      if (session.message_logs.length < 1) {
+      // Check message count from Message collection first, fallback to embedded message_logs
+      const { Message } = require('../../models');
+      console.log(`🔍 Querying messages with session_id: ${session.session_id}`);
+
+      let messageCount = await Message.countDocuments({ session_id: session.session_id });
+      console.log(`📊 Message collection count: ${messageCount}`);
+
+      // Always check embedded message_logs as well for complete picture
+      const embeddedMessageCount = session.message_logs?.length || 0;
+      console.log(`📊 Embedded message_logs count: ${embeddedMessageCount}`);
+
+      // Use the higher of the two counts to determine if we have messages
+      const totalMessageCount = Math.max(messageCount, embeddedMessageCount);
+      console.log(`📊 Total effective message count: ${totalMessageCount} (Message collection: ${messageCount}, Embedded: ${embeddedMessageCount})`);
+
+      if (totalMessageCount < 1) {
         throw new Error('Session needs at least 1 message to generate a summary');
       }
+
+      // For AI processing, prefer Message collection but fallback to embedded if needed
+      messageCount = messageCount > 0 ? messageCount : embeddedMessageCount;
+
+      console.log(`🔍 Found ${messageCount} messages for session ${session.session_id}`);
 
       // Create summary record - use actual MongoDB ObjectId
       const summary = await Summary.create_summary(
@@ -250,8 +277,8 @@ const sessionsRouter = router({
         session.owner_id._id || session.room_id.owner_id
       );
 
-      // Generate AI summary
-      const geminiService = new GeminiService();
+      // Generate AI summary using singleton instance
+      const geminiService = require('../../services/gemini_service');
       await geminiService.generate_chat_summary(session, summary);
 
       // Attach summary to session

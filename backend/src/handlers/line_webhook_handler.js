@@ -6,7 +6,7 @@
 
 const lineService = require('../services/line_service');
 const geminiService = require('../services/gemini_service');
-const { Owner, Room, ChatSession, Summary, LineEventsRaw } = require('../models');
+const { Owner, Room, ChatSession, Summary, LineEventsRaw, Message } = require('../models');
 
 class LineWebhookHandler {
   constructor() {
@@ -150,6 +150,7 @@ class LineWebhookHandler {
   async process_text_message(session, userId, text, lineMessageId, timestamp) {
     console.log(`📝 Processing text message: "${text.substring(0, 50)}..."`);
 
+    // Add to embedded message_logs for backward compatibility
     await session.add_message_log(
       'user',
       'text',
@@ -157,7 +158,23 @@ class LineWebhookHandler {
       lineMessageId
     );
 
-    console.log(`✅ Text message added to session ${session._id}`);
+    // Also create separate Message document for AI processing
+    await Message.create_message({
+      session_id: session.session_id, // Use session_id field, not _id
+      room_id: session.room_id,
+      owner_id: session.owner_id,
+      line_room_id: session.line_room_id,
+      timestamp: new Date(timestamp),
+      direction: 'user',
+      message_type: 'text',
+      message: text,
+      line_message_id: lineMessageId,
+      line_user_id: userId,
+      room_type: session.room_type,
+      sender_role: session.room_type === 'group' ? 'group_member' : 'user'
+    });
+
+    console.log(`✅ Text message added to session ${session._id} and Message collection`);
   }
 
   /**
@@ -166,8 +183,7 @@ class LineWebhookHandler {
   async process_image_message(session, userId, message, timestamp) {
     console.log(`🖼️ Processing image message`);
 
-    // TODO: Download and store image in GridFS
-    // For now, just store the reference
+    // Add to embedded message_logs for backward compatibility
     await session.add_message_log(
       'user',
       'image',
@@ -175,7 +191,23 @@ class LineWebhookHandler {
       message.id
     );
 
-    console.log(`✅ Image message added to session ${session._id}`);
+    // Also create separate Message document for AI processing
+    await Message.create_message({
+      session_id: session.session_id,
+      room_id: session.room_id,
+      owner_id: session.owner_id,
+      line_room_id: session.line_room_id,
+      timestamp: new Date(timestamp),
+      direction: 'user',
+      message_type: 'image',
+      message: 'Image uploaded',
+      line_message_id: message.id,
+      line_user_id: userId,
+      room_type: session.room_type,
+      sender_role: session.room_type === 'group' ? 'group_member' : 'user'
+    });
+
+    console.log(`✅ Image message added to session ${session._id} and Message collection`);
   }
 
   /**
@@ -184,6 +216,7 @@ class LineWebhookHandler {
   async process_other_message(session, userId, message, timestamp) {
     console.log(`📎 Processing ${message.type} message`);
 
+    // Add to embedded message_logs for backward compatibility
     await session.add_message_log(
       'user',
       message.type,
@@ -191,7 +224,23 @@ class LineWebhookHandler {
       message.id
     );
 
-    console.log(`✅ ${message.type} message added to session ${session._id}`);
+    // Also create separate Message document for AI processing
+    await Message.create_message({
+      session_id: session.session_id,
+      room_id: session.room_id,
+      owner_id: session.owner_id,
+      line_room_id: session.line_room_id,
+      timestamp: new Date(timestamp),
+      direction: 'user',
+      message_type: message.type,
+      message: `${message.type} message`,
+      line_message_id: message.id,
+      line_user_id: userId,
+      room_type: session.room_type,
+      sender_role: session.room_type === 'group' ? 'group_member' : 'user'
+    });
+
+    console.log(`✅ ${message.type} message added to session ${session._id} and Message collection`);
   }
 
   /**

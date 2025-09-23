@@ -30,12 +30,25 @@ class GeminiService {
     const startTime = Date.now();
 
     try {
-      // Fetch messages from Message collection instead of message_logs
+      // Fetch messages from Message collection first, fallback to embedded message_logs
       const { Message } = require('../models');
-      const messages = await Message.get_session_messages(session._id, 1000); // Get all messages for session
+      let messages = await Message.get_session_messages(session.session_id, 1000); // Get all messages for session
+
+      console.log(`🔍 Retrieved ${messages.length} messages from Message collection for session ${session.session_id}`);
+
+      // If no messages in Message collection, use embedded message_logs as fallback
+      if (messages.length === 0 && session.message_logs && session.message_logs.length > 0) {
+        console.log(`📋 Falling back to embedded message_logs (${session.message_logs.length} messages)`);
+        messages = this.convert_message_logs_to_message_format(session.message_logs);
+      }
 
       // Prepare conversation context
       const conversationText = this.prepare_conversation_text_from_messages(messages);
+
+      console.log(`📝 Prepared conversation text length: ${conversationText.length} characters`);
+      if (conversationText.length === 0) {
+        console.warn(`⚠️ Empty conversation text for session ${session.session_id}`);
+      }
 
       // Generate summary prompt
       const prompt = this.build_summary_prompt(conversationText, session, messages.length);
@@ -85,6 +98,20 @@ class GeminiService {
   }
 
   /**
+   * Convert embedded message_logs to Message-like format for AI processing
+   */
+  convert_message_logs_to_message_format(messageLogs) {
+    return messageLogs.map(log => ({
+      timestamp: log.timestamp,
+      direction: log.direction,
+      message_type: log.message_type,
+      message: log.message,
+      user_name: 'User', // Default name since embedded logs don't have user details
+      sender_role: 'user'
+    }));
+  }
+
+  /**
    * Prepare conversation text from Message collection
    */
   prepare_conversation_text_from_messages(messages) {
@@ -118,48 +145,48 @@ class GeminiService {
    * Build comprehensive prompt for Gemini
    */
   build_summary_prompt(conversationText, session, messageCount) {
-    return `You are an AI assistant specialized in analyzing and summarizing chat conversations. Please analyze the following conversation and provide a comprehensive summary.
+    return `คุณเป็น AI ผู้ช่วยที่เชี่ยวชาญในการวิเคราะห์และสรุปการสนทนาแชท กรุณาวิเคราะห์การสนทนาต่อไปนี้และให้สรุปที่ครอบคลุม
 
-CONVERSATION DETAILS:
+รายละเอียดการสนทนา:
 - Session ID: ${session.session_id}
-- Room: ${session.room_name} (${session.room_type})
-- Duration: ${this.get_session_duration(session)}
-- Total Messages: ${messageCount}
+- ห้อง: ${session.room_name} (${session.room_type})
+- ระยะเวลา: ${this.get_session_duration(session)}
+- จำนวนข้อความทั้งหมด: ${messageCount}
 
-CONVERSATION:
+การสนทนา:
 ${conversationText}
 
-ANALYSIS INSTRUCTIONS:
-Please provide a detailed analysis in the following JSON format:
+คำแนะนำในการวิเคราะห์:
+กรุณาให้การวิเคราะห์อย่างละเอียดในรูปแบบ JSON ดังนี้:
 
 {
-  "summary": "A comprehensive 2-3 paragraph summary of the conversation including main topics, key decisions, and outcomes",
-  "key_topics": ["topic1", "topic2", "topic3"],
+  "summary": "สรุปครอบคลุม 2-3 ย่อหน้าของการสนทนา รวมถึงหัวข้อหลัก การตัดสินใจสำคัญ และผลลัพธ์",
+  "key_topics": ["หัวข้อ1", "หัวข้อ2", "หัวข้อ3"],
   "sentiment": "positive/neutral/negative",
   "urgency": "low/medium/high",
-  "category": "general category of the conversation",
-  "action_items": ["action item 1", "action item 2"],
+  "category": "หมวดหมู่ทั่วไปของการสนทนา",
+  "action_items": ["สิ่งที่ต้องทำ 1", "สิ่งที่ต้องทำ 2"],
   "participants_analysis": {
     "total_participants": number,
-    "message_distribution": "description of who participated most",
+    "message_distribution": "คำอธิบายว่าใครมีส่วนร่วมมากที่สุด",
     "engagement_level": "high/medium/low"
   },
   "conversation_highlights": [
-    "Most important points or decisions made"
+    "ประเด็นสำคัญที่สุดหรือการตัดสินใจที่ทำ"
   ],
   "follow_up_needed": "yes/no",
-  "tags": ["tag1", "tag2", "tag3"]
+  "tags": ["แท็ก1", "แท็ก2", "แท็ก3"]
 }
 
-Focus on:
-1. Main discussion topics and themes
-2. Any decisions made or conclusions reached
-3. Action items or follow-ups mentioned
-4. Overall sentiment and tone
-5. Important information or insights shared
-6. Questions asked and answered
+มุ่งเน้นไปที่:
+1. หัวข้อการสนทนาหลักและธีม
+2. การตัดสินใจหรือข้อสรุปที่ได้
+3. สิ่งที่ต้องทำหรือการติดตามที่กล่าวถึง
+4. อารมณ์และโทนโดยรวม
+5. ข้อมูลสำคัญหรือความเข้าใจที่แบ่งปัน
+6. คำถามที่ถามและตอบ
 
-Provide objective, factual analysis while being comprehensive yet concise.`;
+ให้การวิเคราะห์ที่เป็นกลาง เป็นข้อเท็จจริง และครอบคลุมแต่กระชับ กรุณาตอบเป็นภาษาไทยทั้งหมด`;
   }
 
   /**

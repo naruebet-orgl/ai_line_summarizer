@@ -219,7 +219,7 @@ class SessionManager {
 
     // Generate summary if requested and session has enough messages
     if (generateSummary) {
-      const messageCount = await Message.countDocuments({ session_id: sessionId });
+      const messageCount = await Message.countDocuments({ session_id: session.session_id });
       if (messageCount >= 1) {
         console.log(`🤖 Triggering summary generation for session: ${sessionId}`);
 
