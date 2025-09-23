@@ -53,8 +53,8 @@ class GeminiService {
       // Generate summary prompt
       const prompt = this.build_summary_prompt(conversationText, session, messages.length);
 
-      // Call Gemini API
-      const result = await this.model.generateContent(prompt);
+      // Call Gemini API with retry logic for rate limiting
+      const result = await this.generateContentWithRetry(prompt);
       const response = await result.response;
       const summaryContent = response.text();
 
@@ -294,11 +294,59 @@ ${conversationText}
   }
 
   /**
+   * Generate content with exponential backoff retry logic
+   * Handles Gemini API rate limiting and overload errors
+   */
+  async generateContentWithRetry(prompt, maxRetries = 3) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🤖 Gemini API attempt ${attempt}/${maxRetries}`);
+        const result = await this.model.generateContent(prompt);
+
+        if (attempt > 1) {
+          console.log(`✅ Gemini API succeeded on attempt ${attempt}`);
+        }
+
+        return result;
+
+      } catch (error) {
+        lastError = error;
+
+        // Check if it's a rate limiting or overload error
+        const isRetryableError = error.status === 503 || // Service Unavailable
+                                error.status === 429 || // Too Many Requests
+                                error.message?.includes('overloaded') ||
+                                error.message?.includes('rate limit');
+
+        if (!isRetryableError || attempt === maxRetries) {
+          console.error(`❌ Gemini API failed on attempt ${attempt}/${maxRetries}:`, error.message);
+          throw error;
+        }
+
+        // Calculate exponential backoff delay: 2^attempt + random jitter
+        const baseDelay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+        const jitter = Math.random() * 1000; // 0-1s random jitter
+        const delay = baseDelay + jitter;
+
+        console.warn(`⚠️ Gemini API overloaded (attempt ${attempt}/${maxRetries}). Retrying in ${Math.round(delay/1000)}s...`);
+        console.warn(`📝 Error details: ${error.message}`);
+
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
    * Test Gemini API connection
    */
   async test_connection() {
     try {
-      const result = await this.model.generateContent("Hello, this is a test. Please respond with 'Connection successful'.");
+      const result = await this.generateContentWithRetry("Hello, this is a test. Please respond with 'Connection successful'.");
       const response = await result.response;
       const text = response.text();
 
