@@ -9,8 +9,11 @@ const notoSansThai = Noto_Sans_Thai({
 });
 
 export const metadata: Metadata = {
-  title: "ORGL Notes Bot",
+  title: "SummaryAI",
   description: "AI-powered chat summarization dashboard for LINE Official Accounts",
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 // Force Railway redeploy - Updated UI with shadcn components

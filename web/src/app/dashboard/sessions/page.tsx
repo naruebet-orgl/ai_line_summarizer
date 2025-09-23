@@ -6,13 +6,13 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatDate, formatRelativeTime, getStatusColor } from '@/lib/utils';
-import { Users, MessageSquare, Clock, Eye, RefreshCw, Activity, Brain } from 'lucide-react';
+import { MessageSquare, Clock, Eye, RefreshCw, Activity, Brain } from 'lucide-react';
 
-interface GroupSession {
+interface Session {
   _id: string;
   session_id: string;
   room_name: string;
-  room_type: 'group';
+  room_type: 'group' | 'user';
   status: 'active' | 'closed' | 'summarizing';
   start_time: string;
   end_time?: string;
@@ -22,80 +22,70 @@ interface GroupSession {
   last_activity?: string;
 }
 
-interface GroupsResponse {
-  groups: GroupSession[];
-  stats: {
-    totalGroups: number;
-    activeGroups: number;
-    totalMessages: number;
-    avgMessagesPerGroup: number;
-  };
-}
-
-export default function GroupsPage() {
-  const [groups, setGroups] = useState<GroupSession[]>([]);
+export default function SessionsPage() {
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('active');
   const [stats, setStats] = useState({
-    totalGroups: 0,
-    activeGroups: 0,
+    totalSessions: 0,
+    activeSessions: 0,
     totalMessages: 0,
-    avgMessagesPerGroup: 0
+    avgMessagesPerSession: 0
   });
 
-  const fetchGroups = async () => {
+  const fetchSessions = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch all sessions from backend and filter for groups
+      // Fetch all sessions from backend and filter for individual sessions
       const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{"limit":50}}}`);
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch groups: ${response.status}`);
+        throw new Error(`Failed to fetch sessions: ${response.status}`);
       }
 
       const data = await response.json();
       const sessionData = data[0]?.result?.data;
 
       if (sessionData && sessionData.sessions) {
-        // Filter for group sessions only
-        const groupSessions = sessionData.sessions.filter((s: any) =>
-          s.room_type === 'group' || s.room_id?.type === 'group'
+        // Filter for individual sessions only (non-group)
+        const individualSessions = sessionData.sessions.filter((s: any) =>
+          s.room_type === 'user' || s.room_id?.type === 'user' || (!s.room_type && !s.room_id?.type)
         );
 
         // Filter by status if needed
-        const filteredGroups = filter === 'all' ? groupSessions :
-          groupSessions.filter((s: GroupSession) => s.status === filter);
+        const filteredSessions = filter === 'all' ? individualSessions :
+          individualSessions.filter((s: Session) => s.status === filter);
 
-        setGroups(filteredGroups);
+        setSessions(filteredSessions);
         setStats({
-          totalGroups: groupSessions.length,
-          activeGroups: groupSessions.filter((s: GroupSession) => s.status === 'active').length,
-          totalMessages: groupSessions.reduce((acc: number, s: GroupSession) => acc + s.message_count, 0),
-          avgMessagesPerGroup: groupSessions.length > 0 ?
-            Math.round(groupSessions.reduce((acc: number, s: GroupSession) => acc + s.message_count, 0) / groupSessions.length) : 0
+          totalSessions: individualSessions.length,
+          activeSessions: individualSessions.filter((s: Session) => s.status === 'active').length,
+          totalMessages: individualSessions.reduce((acc: number, s: Session) => acc + s.message_count, 0),
+          avgMessagesPerSession: individualSessions.length > 0 ?
+            Math.round(individualSessions.reduce((acc: number, s: Session) => acc + s.message_count, 0) / individualSessions.length) : 0
         });
       } else {
-        // No groups found
-        setGroups([]);
+        // No sessions found
+        setSessions([]);
         setStats({
-          totalGroups: 0,
-          activeGroups: 0,
+          totalSessions: 0,
+          activeSessions: 0,
           totalMessages: 0,
-          avgMessagesPerGroup: 0
+          avgMessagesPerSession: 0
         });
       }
     } catch (err) {
-      console.error('Error fetching groups:', err);
-      setError(`Failed to load groups: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      setGroups([]);
+      console.error('Error fetching sessions:', err);
+      setError(`Failed to load sessions: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setSessions([]);
       setStats({
-        totalGroups: 0,
-        activeGroups: 0,
+        totalSessions: 0,
+        activeSessions: 0,
         totalMessages: 0,
-        avgMessagesPerGroup: 0
+        avgMessagesPerSession: 0
       });
     } finally {
       setLoading(false);
@@ -103,9 +93,8 @@ export default function GroupsPage() {
   };
 
   useEffect(() => {
-    fetchGroups();
+    fetchSessions();
   }, [filter]);
-
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -125,13 +114,13 @@ export default function GroupsPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-normal text-gray-900">Group Chats</h1>
-            <p className="text-gray-600">AI-powered group conversation analytics</p>
+            <h1 className="text-2xl font-normal text-gray-900">Individual Sessions</h1>
+            <p className="text-gray-600">AI-powered individual conversation analytics</p>
           </div>
         </div>
         <div className="flex items-center justify-center h-64">
           <RefreshCw className="w-6 h-6 animate-spin" />
-          <span className="ml-2">Loading group chats...</span>
+          <span className="ml-2">Loading sessions...</span>
         </div>
       </div>
     );
@@ -142,15 +131,15 @@ export default function GroupsPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-normal text-gray-900">Group Chats</h1>
-            <p className="text-gray-600">AI-powered group conversation analytics</p>
+            <h1 className="text-2xl font-normal text-gray-900">Individual Sessions</h1>
+            <p className="text-gray-600">AI-powered individual conversation analytics</p>
           </div>
         </div>
         <Card>
           <CardContent className="p-6">
             <div className="text-center">
               <p className="text-red-600 mb-4">Error: {error}</p>
-              <Button onClick={fetchGroups}>
+              <Button onClick={fetchSessions}>
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Try Again
               </Button>
@@ -166,9 +155,13 @@ export default function GroupsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-normal text-gray-900">Group Chats</h1>
-          <p className="text-gray-600">AI-powered group conversation analytics</p>
+          <h1 className="text-2xl font-normal text-gray-900">Individual Sessions</h1>
+          <p className="text-gray-600">AI-powered individual conversation analytics</p>
         </div>
+        <Button onClick={fetchSessions}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </Button>
       </div>
 
       {/* Stats Cards */}
@@ -176,12 +169,12 @@ export default function GroupsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-normal text-gray-600 flex items-center">
-              <Users className="w-4 h-4 mr-2" />
-              Total Groups
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Total Sessions
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-xl font-normal">{stats.totalGroups}</div>
+            <div className="text-xl font-normal">{stats.totalSessions}</div>
           </CardContent>
         </Card>
 
@@ -189,11 +182,11 @@ export default function GroupsPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-normal text-gray-600 flex items-center">
               <Activity className="w-4 h-4 mr-2" />
-              Active Groups
+              Active Sessions
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-xl font-normal text-green-600">{stats.activeGroups}</div>
+            <div className="text-xl font-normal text-green-600">{stats.activeSessions}</div>
           </CardContent>
         </Card>
 
@@ -205,7 +198,7 @@ export default function GroupsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-xl font-normal text-green-600">{stats.totalMessages}</div>
+            <div className="text-xl font-normal text-blue-600">{stats.totalMessages}</div>
           </CardContent>
         </Card>
 
@@ -217,7 +210,7 @@ export default function GroupsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-xl font-normal text-green-600">{stats.avgMessagesPerGroup}</div>
+            <div className="text-xl font-normal text-purple-600">{stats.avgMessagesPerSession}</div>
           </CardContent>
         </Card>
       </div>
@@ -229,7 +222,7 @@ export default function GroupsPage() {
           size="sm"
           onClick={() => setFilter('all')}
         >
-          All Groups
+          All Sessions
         </Button>
         <Button
           variant={filter === 'active' ? 'default' : 'outline'}
@@ -247,17 +240,17 @@ export default function GroupsPage() {
         </Button>
       </div>
 
-      {/* Groups Grid */}
-      {groups.length === 0 ? (
+      {/* Sessions Grid */}
+      {sessions.length === 0 ? (
         <Card>
           <CardContent className="p-12">
             <div className="text-center">
-              <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-base font-normal text-gray-900 mb-2">No group chats found</h3>
+              <MessageSquare className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-base font-normal text-gray-900 mb-2">No individual sessions found</h3>
               <p className="text-gray-500 mb-4">
-                Add your LINE bot to group chats to start tracking conversations.
+                Start conversations with your LINE bot to see individual sessions here.
               </p>
-              <Button variant="outline" onClick={fetchGroups}>
+              <Button variant="outline" onClick={fetchSessions}>
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Refresh
               </Button>
@@ -266,16 +259,16 @@ export default function GroupsPage() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {groups.map((group) => (
-            <Card key={group.session_id} className="hover:shadow-md transition-shadow">
+          {sessions.map((session) => (
+            <Card key={session.session_id} className="hover:shadow-md transition-shadow">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base font-normal truncate pr-2">
-                    {group.room_name}
+                    {session.room_name}
                   </CardTitle>
-                  <Badge className={`${getStatusColor(group.status)} flex items-center space-x-1`}>
-                    {getStatusIcon(group.status)}
-                    <span className="text-xs">{group.status}</span>
+                  <Badge className={`${getStatusColor(session.status)} flex items-center space-x-1`}>
+                    {getStatusIcon(session.status)}
+                    <span className="text-xs">{session.status}</span>
                   </Badge>
                 </div>
               </CardHeader>
@@ -286,21 +279,21 @@ export default function GroupsPage() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-500">Session ID</span>
                     <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
-                      {group.session_id.substring(0, 8)}...
+                      {session.session_id.substring(0, 8)}...
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-500">Messages</span>
-                    <span className="font-normal text-green-600">{group.message_count}</span>
+                    <span className="font-normal text-blue-600">{session.message_count}</span>
                   </div>
 
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-500">Started</span>
-                    <span className="text-gray-700">{formatRelativeTime(group.start_time)}</span>
+                    <span className="text-gray-700">{formatRelativeTime(session.start_time)}</span>
                   </div>
 
-                  {group.has_summary && (
+                  {session.has_summary && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-500">AI Summary</span>
                       <span className="flex items-center text-green-600">
@@ -313,10 +306,10 @@ export default function GroupsPage() {
 
                 {/* Action Button */}
                 <div className="pt-2 border-t">
-                  <Link href={`/dashboard/groups/${encodeURIComponent(group.room_name)}/sessions`} className="w-full">
+                  <Link href={`/dashboard/sessions/${session.session_id}`} className="w-full">
                     <Button variant="outline" size="sm" className="w-full">
                       <Eye className="w-4 h-4 mr-2" />
-                      View Group Sessions
+                      View Session
                     </Button>
                   </Link>
                 </div>

@@ -1,6 +1,9 @@
 {
-  "/api/auth/verify/route": "app/api/auth/verify/route.js",
   "/api/trpc/[trpc]/route": "app/api/trpc/[trpc]/route.js",
-  "/dashboard/sessions/[sessionId]/page": "app/dashboard/sessions/[sessionId]/page.js",
-  "/dashboard/page": "app/dashboard/page.js"
+  "/api/auth/verify/route": "app/api/auth/verify/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/dashboard/groups/page": "app/dashboard/groups/page.js",
+  "/dashboard/groups/[groupName]/sessions/page": "app/dashboard/groups/[groupName]/sessions/page.js",
+  "/dashboard/sessions/page": "app/dashboard/sessions/page.js"
 }

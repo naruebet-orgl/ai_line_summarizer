@@ -3,8 +3,10 @@
 import Link from 'next/link';
 import { MessageSquare, Users, LogOut, Infinity, Menu, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth';
+import { Breadcrumb } from '@/components/ui/breadcrumb';
 
 export default function DashboardLayout({
   children,
@@ -16,6 +18,7 @@ export default function DashboardLayout({
   const [isResizing, setIsResizing] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { loading, requireAuth, logout } = useAuth();
+  const pathname = usePathname();
 
   useEffect(() => {
     set_current_date(new Date().toLocaleDateString());
@@ -68,6 +71,14 @@ export default function DashboardLayout({
     };
   }, [isResizing]);
 
+  // Helper function to check if a tab is active
+  const isActiveTab = (tabPath: string) => {
+    if (tabPath === '/dashboard/groups') {
+      return pathname === '/dashboard' || pathname === '/dashboard/groups' || pathname.startsWith('/dashboard/groups/');
+    }
+    return false;
+  };
+
   // Show loading spinner while checking authentication
   if (loading) {
     return (
@@ -113,26 +124,36 @@ export default function DashboardLayout({
         </div>
 
         <div className="p-6">
-          <div className="flex justify-center">
-            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+          <div className="flex flex-col items-center">
+            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center mb-3">
               <Infinity className="w-5 h-5 text-green-600" />
             </div>
+            <h1 className="text-base font-normal text-gray-800 text-center">
+              SummaryAI
+            </h1>
           </div>
         </div>
         
         <nav className="mt-6">
-          <Button variant="ghost" className="w-full justify-start px-6 py-3 h-auto" asChild>
-            <Link href="/dashboard" onClick={closeMobileMenu}>
-              <MessageSquare className="w-5 h-5 mr-3" />
-              All Sessions
-            </Link>
-          </Button>
-          <Button variant="ghost" className="w-full justify-start px-6 py-3 h-auto" asChild>
-            <Link href="/dashboard/groups" onClick={closeMobileMenu}>
-              <Users className="w-5 h-5 mr-3" />
-              Group Chats
-            </Link>
-          </Button>
+          <div className="relative">
+            <Button
+              variant="ghost"
+              className={`w-full justify-start px-6 py-3 h-auto ${
+                isActiveTab('/dashboard/groups')
+                  ? 'bg-green-50 text-green-700'
+                  : 'hover:bg-gray-50'
+              }`}
+              asChild
+            >
+              <Link href="/dashboard/groups" onClick={closeMobileMenu}>
+                <Users className="w-5 h-5 mr-3" />
+                Groups
+              </Link>
+            </Button>
+            {isActiveTab('/dashboard/groups') && (
+              <div className="absolute left-0 top-0 h-full w-1 bg-green-600"></div>
+            )}
+          </div>
         </nav>
         
         <div className="absolute bottom-0 p-6 border-t" style={{ width: sidebarWidth }}>
@@ -173,15 +194,19 @@ export default function DashboardLayout({
               >
                 <Menu className="w-5 h-5" />
               </Button>
-              <h2 className="text-xl font-normal text-gray-800">
-                ORGL-Summarizer Ai
-              </h2>
+              <div className="hidden md:block">
+                <Breadcrumb />
+              </div>
             </div>
             <div className="flex items-center space-x-4">
               <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
                 AI
               </div>
             </div>
+          </div>
+          {/* Mobile breadcrumb */}
+          <div className="md:hidden mt-3 pt-3 border-t border-gray-200">
+            <Breadcrumb />
           </div>
         </header>
         
