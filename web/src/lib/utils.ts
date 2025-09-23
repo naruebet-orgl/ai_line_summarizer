@@ -51,23 +51,27 @@ export function formatRelativeTime(date: Date | string) {
 }
 
 export function getStatusColor(status: string) {
-  switch (status.toLowerCase()) {
-    case 'open':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    case 'submitted':
+  switch (status) {
+    case 'active':
       return 'bg-green-100 text-green-800 border-green-200';
+    case 'closed':
+      return 'bg-blue-100 text-blue-800 border-blue-200';
+    case 'summarizing':
+      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
     default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-gray-100 text-gray-800 border-gray-300';
   }
 }
 
 export function getStatusIcon(status: string) {
-  switch (status.toLowerCase()) {
-    case 'open':
-      return '🟡';
-    case 'submitted':
+  switch (status) {
+    case 'active':
+      return '🟢';
+    case 'closed':
       return '✅';
+    case 'summarizing':
+      return '🤖';
     default:
-      return '⭕';
+      return '⚪';
   }
 }

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { formatRelativeTime } from '@/lib/utils';
+import { formatRelativeTime, getStatusColor, getStatusIcon } from '@/lib/utils';
 import { Eye, RefreshCw, MessageSquare, Users, Brain, BarChart3 } from 'lucide-react';
 
 interface ChatSession {
@@ -113,31 +113,6 @@ export default function DashboardPage() {
     fetchSessions();
   }, [filter]);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'bg-green-100 text-green-800 border-green-200';
-      case 'closed':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'summarizing':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-300';
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'active':
-        return '🟢';
-      case 'closed':
-        return '✅';
-      case 'summarizing':
-        return '🤖';
-      default:
-        return '⚪';
-    }
-  };
 
   if (loading) {
     return (

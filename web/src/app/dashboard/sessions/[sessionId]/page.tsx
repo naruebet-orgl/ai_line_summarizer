@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ArrowLeft, MessageCircle, Clock, Users, Sparkles, Square, Zap, ScrollText } from 'lucide-react'
 import Link from 'next/link'
+import { getStatusColor, formatDate } from '@/lib/utils'
 
 interface ChatSession {
   session_id: string
@@ -81,28 +82,7 @@ export default function SessionDetailPage() {
     }
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'bg-green-100 text-green-800'
-      case 'closed':
-        return 'bg-blue-100 text-blue-800'
-      case 'summarizing':
-        return 'bg-yellow-100 text-yellow-800'
-      default:
-        return 'bg-gray-100 text-gray-800'
-    }
-  }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
 
   const handleEndSession = async () => {
     try {

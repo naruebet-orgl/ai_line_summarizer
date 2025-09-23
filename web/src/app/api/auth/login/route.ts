@@ -18,12 +18,11 @@ export async function POST(request: NextRequest) {
 
     // For MVP, we'll use a simple hardcoded check
     // In production, you'd implement proper user authentication
-    if ((email === 'admin@linechat.ai' && password === 'summarizer123') ||
-        (email === 'admin@company.com' && password === 'admin123')) {
+    if (email === 'aiadmin' && password === 'aiadmin') {
       const response = NextResponse.json({
         success: true,
         user: {
-          email: email,
+          email: 'aiadmin',
           name: 'AI Analytics Admin',
           roles: ['analytics_viewer']
         }

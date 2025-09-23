@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         authenticated: true,
         user: {
-          email: 'admin@linechat.ai',
+          email: 'aiadmin',
           name: 'AI Analytics Admin',
           roles: ['analytics_viewer']
         }
