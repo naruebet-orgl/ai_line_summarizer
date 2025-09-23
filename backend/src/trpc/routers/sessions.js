@@ -22,9 +22,13 @@ const sessionsRouter = router({
       const { page, limit, status, roomId, room_type } = input;
       const skip = (page - 1) * limit;
 
+      console.log('🔍 Sessions.list called with input:', input);
+
       let filter = {};
       if (status) filter.status = status;
       if (roomId) filter.room_id = roomId;
+
+      console.log('🔍 MongoDB filter applied:', filter);
 
       // Get all sessions first with populated room data
       let query = ChatSession.find(filter)
@@ -92,7 +96,9 @@ const sessionsRouter = router({
               line_room_id: room?.line_room_id,
               message_count: session.message_logs?.length || 0,
               has_summary: !!summary,
-              room_id: room
+              room_id: room,
+              start_time: session.start_time,
+              end_time: session.end_time
             };
           }),
           pagination: {

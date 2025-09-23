@@ -197,11 +197,14 @@ ChatSessionSchema.methods.get_conversation_summary = function() {
     room_id: this.room_id,
     line_room_id: this.line_room_id,
     status: this.status,
+    start_time: this.start_time,
+    end_time: this.end_time,
     duration_minutes: this.end_time ?
       Math.round((this.end_time - this.start_time) / (1000 * 60)) : null,
     message_count: this.message_logs.length,
     room_name: this.room_name,
-    room_type: this.room_type
+    room_type: this.room_type,
+    has_summary: !!this.summary_id
   };
 };
 
