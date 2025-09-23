@@ -27,6 +27,14 @@ const nextConfig = {
       },
     ]
   },
+  async rewrites() {
+    return [
+      {
+        source: '/api/images/:path*',
+        destination: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/images/:path*`,
+      },
+    ]
+  },
   webpack: (config) => {
     config.experiments = {
       ...config.experiments,

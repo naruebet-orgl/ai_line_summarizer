@@ -191,6 +191,10 @@ class DatabaseConnection {
       await createIndexIfNotExists('audit_reads', { when: -1 });
       await createIndexIfNotExists('audit_reads', { subject: 1, when: -1 });
 
+      // GridFS Images indexes
+      await createIndexIfNotExists('images.files', { 'metadata.messageId': 1 });
+      await createIndexIfNotExists('images.files', { 'metadata.uploadedAt': -1 });
+
       console.log('✅ Database indexes created successfully');
 
     } catch (error) {

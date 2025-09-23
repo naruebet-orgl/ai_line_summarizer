@@ -96,6 +96,60 @@ try {
 // API Routes
 app.use('/api/line', lineRoutes);
 
+// Image serving endpoint from GridFS
+app.get('/api/images/:imageId', async (req, res) => {
+  try {
+    const { imageId } = req.params;
+    console.log(`📸 Serving image: ${imageId}`);
+
+    const mongoose = require('mongoose');
+    const { ObjectId } = require('mongodb');
+
+    // Validate ObjectId
+    if (!ObjectId.isValid(imageId)) {
+      return res.status(400).json({ error: 'Invalid image ID' });
+    }
+
+    // Create GridFS bucket
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+      bucketName: 'images'
+    });
+
+    // Find the file
+    const files = await bucket.find({ _id: new ObjectId(imageId) }).toArray();
+
+    if (files.length === 0) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+
+    const file = files[0];
+
+    // Set appropriate headers
+    res.set({
+      'Content-Type': file.metadata?.contentType || 'image/jpeg',
+      'Content-Length': file.length,
+      'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
+      'ETag': file._id.toString()
+    });
+
+    // Stream the file
+    const downloadStream = bucket.openDownloadStream(new ObjectId(imageId));
+
+    downloadStream.on('error', (error) => {
+      console.error('❌ Error streaming image:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Error serving image' });
+      }
+    });
+
+    downloadStream.pipe(res);
+
+  } catch (error) {
+    console.error('❌ Error serving image:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -118,6 +172,7 @@ app.get('/', (req, res) => {
       line_push: '/api/line/push',
       line_profile: '/api/line/profile/:userId',
       line_health: '/api/line/health',
+      images: '/api/images/:imageId',
       trpc_api: '/api/trpc'
     },
     timestamp: new Date().toISOString()

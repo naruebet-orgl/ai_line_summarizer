@@ -6,6 +6,7 @@
 const crypto = require('crypto');
 const axios = require('axios');
 const config = require('../config');
+const mongoose = require('mongoose');
 
 class LineService {
   constructor() {
@@ -262,6 +263,130 @@ class LineService {
         actions
       }
     };
+  }
+
+  /**
+   * Download image content from LINE servers and save to MongoDB GridFS
+   * @param {string} messageId - LINE message ID
+   * @returns {Promise<string|null>} - GridFS file ID or null if failed
+   */
+  async download_and_save_image(messageId) {
+    try {
+      console.log(`📥 Downloading image for message ID: ${messageId}`);
+
+      // LINE content API endpoint
+      const contentUrl = `https://api-data.line.me/v2/bot/message/${messageId}/content`;
+      console.log(`🔗 Content URL: ${contentUrl}`);
+
+      // Download image from LINE API with proper headers
+      const response = await axios.get(contentUrl, {
+        headers: {
+          'Authorization': `Bearer ${this.channelAccessToken}`,
+          'User-Agent': 'LINE-Chat-Summarizer/1.0'
+        },
+        responseType: 'stream',
+        timeout: 30000, // 30 second timeout
+        maxRedirects: 5
+      });
+
+      // Check if we have a valid response
+      if (!response.data) {
+        console.error('❌ No image data received from LINE API');
+        return null;
+      }
+
+      // Get content type and size
+      const contentType = response.headers['content-type'] || 'image/jpeg';
+      const contentLength = response.headers['content-length'];
+
+      console.log(`📊 Image info: ${contentType}, ${contentLength} bytes`);
+
+      // Validate content type
+      if (!contentType.startsWith('image/')) {
+        console.error(`❌ Invalid content type: ${contentType}`);
+        return null;
+      }
+
+      // Create GridFS bucket
+      const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+        bucketName: 'images'
+      });
+
+      // Create upload stream
+      const uploadStream = bucket.openUploadStream(`line_image_${messageId}`, {
+        metadata: {
+          messageId: messageId,
+          contentType: contentType,
+          source: 'line_webhook',
+          uploadedAt: new Date(),
+          originalUrl: contentUrl
+        }
+      });
+
+      // Return a promise that resolves with the file ID
+      return new Promise((resolve, reject) => {
+        let hasData = false;
+
+        uploadStream.on('finish', () => {
+          if (hasData) {
+            console.log(`✅ Image saved to GridFS with ID: ${uploadStream.id}`);
+            resolve(uploadStream.id.toString());
+          } else {
+            console.error('❌ No data was written to GridFS');
+            reject(new Error('No image data received'));
+          }
+        });
+
+        uploadStream.on('error', (error) => {
+          console.error('❌ Error uploading image to GridFS:', error);
+          reject(error);
+        });
+
+        // Track if we receive any data
+        response.data.on('data', () => {
+          hasData = true;
+        });
+
+        response.data.on('error', (error) => {
+          console.error('❌ Error reading image stream:', error);
+          reject(error);
+        });
+
+        // Pipe the response data to GridFS
+        response.data.pipe(uploadStream);
+      });
+
+    } catch (error) {
+      console.error('❌ Error downloading image from LINE:', error);
+
+      // Check for specific LINE API errors
+      if (error.response) {
+        const status = error.response.status;
+        const statusText = error.response.statusText;
+        console.error(`📱 LINE API Error: ${status} - ${statusText}`);
+
+        if (status === 404) {
+          console.error('📱 Image not found - this could be due to:');
+          console.error('   - Image content expired (LINE images expire after 24 hours)');
+          console.error('   - Invalid message ID');
+          console.error('   - Message is not an image type');
+        } else if (status === 401) {
+          console.error('📱 Unauthorized - check LINE channel access token');
+        } else if (status === 403) {
+          console.error('📱 Forbidden - insufficient permissions');
+        }
+
+        if (error.response.data) {
+          console.error('📱 Error details:', error.response.data);
+        }
+      } else if (error.code === 'ECONNABORTED') {
+        console.error('📱 Request timeout - LINE API took too long to respond');
+      } else if (error.code === 'ENOTFOUND') {
+        console.error('📱 Network error - could not reach LINE API');
+      }
+
+      return null;
+    }
   }
 }
 

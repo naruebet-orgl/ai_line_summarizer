@@ -1,8 +1,6 @@
 {
   "/api/auth/verify/route": "app/api/auth/verify/route.js",
   "/api/trpc/[trpc]/route": "app/api/trpc/[trpc]/route.js",
-  "/api/auth/login/route": "app/api/auth/login/route.js",
-  "/api/auth/logout/route": "app/api/auth/logout/route.js",
-  "/login/page": "app/login/page.js",
+  "/dashboard/sessions/[sessionId]/page": "app/dashboard/sessions/[sessionId]/page.js",
   "/dashboard/page": "app/dashboard/page.js"
 }

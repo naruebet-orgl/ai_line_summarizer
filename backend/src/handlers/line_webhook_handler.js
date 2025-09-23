@@ -183,12 +183,31 @@ class LineWebhookHandler {
   async process_image_message(session, userId, message, timestamp) {
     console.log(`🖼️ Processing image message`);
 
+    // Download and save image to GridFS
+    const LineService = require('../services/line_service');
+    let imageGridFSId = null;
+
+    try {
+      imageGridFSId = await LineService.download_and_save_image(message.id);
+      if (imageGridFSId) {
+        console.log(`✅ Image downloaded and saved with GridFS ID: ${imageGridFSId}`);
+      }
+    } catch (error) {
+      console.error('❌ Failed to download image:', error);
+    }
+
+    // Create message text based on whether image was saved
+    const messageText = imageGridFSId ?
+      `Image uploaded (saved: ${imageGridFSId.substring(0, 8)}...)` :
+      'Image uploaded (download failed)';
+
     // Add to embedded message_logs for backward compatibility
     await session.add_message_log(
       'user',
       'image',
-      'Image uploaded',
-      message.id
+      messageText,
+      message.id,
+      imageGridFSId
     );
 
     // Also create separate Message document for AI processing
@@ -200,11 +219,12 @@ class LineWebhookHandler {
       timestamp: new Date(timestamp),
       direction: 'user',
       message_type: 'image',
-      message: 'Image uploaded',
+      message: messageText,
       line_message_id: message.id,
       line_user_id: userId,
       room_type: session.room_type,
-      sender_role: session.room_type === 'group' ? 'group_member' : 'user'
+      sender_role: session.room_type === 'group' ? 'group_member' : 'user',
+      image_grid_fs_id: imageGridFSId
     });
 
     console.log(`✅ Image message added to session ${session._id} and Message collection`);

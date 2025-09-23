@@ -380,14 +380,40 @@ export default function SessionDetailPage() {
                       <p className="text-sm text-gray-800">
                         {message.message}
                       </p>
+
+                      {/* Display image inline if it exists */}
+                      {message.image_grid_fs_id && (
+                        <div className="mt-3">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <Badge variant="outline" className="text-xs">
+                              📷 Image
+                            </Badge>
+                            <span className="text-xs text-gray-500 font-mono">
+                              {message.image_grid_fs_id.substring(0, 8)}...
+                            </span>
+                          </div>
+                          <div className="border rounded-lg overflow-hidden bg-white">
+                            <img
+                              src={`/api/images/${message.image_grid_fs_id}`}
+                              alt="Chat image"
+                              className="max-w-full h-auto max-h-64 object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                              onError={(e) => {
+                                const img = e.target as HTMLImageElement;
+                                img.style.display = 'none';
+                                const errorDiv = document.createElement('div');
+                                errorDiv.className = 'p-4 text-center text-gray-500 text-sm';
+                                errorDiv.innerHTML = '❌ Failed to load image';
+                                img.parentNode?.appendChild(errorDiv);
+                              }}
+                              onClick={(e) => {
+                                const img = e.target as HTMLImageElement;
+                                window.open(img.src, '_blank');
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    {message.image_grid_fs_id && (
-                      <div className="mt-2">
-                        <Badge variant="outline" className="text-xs">
-                          📷 Image attachment
-                        </Badge>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
