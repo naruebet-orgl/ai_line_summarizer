@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
-// Homepage component - force rebuild
+// Homepage component - redirect to login for authentication
 export default function HomePage() {
-  // Bypass login for MVP testing - go directly to dashboard
-  redirect('/dashboard');
+  // Redirect to login to enforce authentication
+  redirect('/login');
 }

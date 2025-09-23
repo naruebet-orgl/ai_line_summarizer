@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { MessageSquare, Users, LogOut } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/lib/auth';
 
 export default function DashboardLayout({
   children,
@@ -11,10 +12,27 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [current_date, set_current_date] = useState<string>('');
-  
+  const { loading, requireAuth, logout } = useAuth();
+
   useEffect(() => {
     set_current_date(new Date().toLocaleDateString());
   }, []);
+
+  useEffect(() => {
+    requireAuth();
+  }, [requireAuth]);
+
+  // Show loading spinner while checking authentication
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-white">
@@ -43,11 +61,13 @@ export default function DashboardLayout({
         </nav>
         
         <div className="absolute bottom-0 w-64 p-6 border-t">
-          <Button variant="ghost" className="w-full justify-start p-0 h-auto text-gray-700 hover:text-red-600" asChild>
-            <Link href="/login">
-              <LogOut className="w-5 h-5 mr-3" />
-              Sign Out
-            </Link>
+          <Button
+            variant="ghost"
+            className="w-full justify-start p-0 h-auto text-gray-700 hover:text-red-600"
+            onClick={logout}
+          >
+            <LogOut className="w-5 h-5 mr-3" />
+            Sign Out
           </Button>
         </div>
       </div>

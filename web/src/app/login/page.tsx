@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,7 +26,7 @@ export default function LoginPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: username, password }),
       });
 
       if (response.ok) {
@@ -61,18 +61,18 @@ export default function LoginPage() {
           <CardContent>
             <form className="space-y-6" onSubmit={handleSubmit}>
               <div>
-                <Label htmlFor="email">
-                  Email address
+                <Label htmlFor="username">
+                  Username
                 </Label>
                 <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
+                  id="username"
+                  name="username"
+                  type="text"
+                  autoComplete="username"
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Enter your username"
                   className="mt-1"
                 />
               </div>
@@ -114,7 +114,7 @@ export default function LoginPage() {
               
               <div className="text-sm text-center text-gray-600">
                 <p>Demo credentials:</p>
-                <p>Email: admin@linechat.ai</p>
+                <p>Username: admin@linechat.ai</p>
                 <p>Password: summarizer123</p>
               </div>
             </form>
