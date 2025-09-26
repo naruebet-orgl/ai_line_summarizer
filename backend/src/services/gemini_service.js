@@ -12,10 +12,18 @@ class GeminiService {
     }
 
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    // Use gemini-1.5-flash for free tier
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    console.log('🤖 GeminiService initialized with Gemini 1.5 Flash (Free Tier)');
+    // Try different model versions for better compatibility with Google AI Studio API
+    const modelOptions = [
+      "gemini-1.5-flash-8b", // Lighter model, more likely to be available
+      "gemini-1.5-flash",
+      "gemini-1.0-pro"  // Fallback to 1.0 Pro
+    ];
+
+    this.modelName = modelOptions[0]; // Default to lighter model
+    this.model = this.genAI.getGenerativeModel({ model: this.modelName });
+
+    console.log(`🤖 GeminiService initialized with ${this.modelName}`);
   }
 
   /**
@@ -71,7 +79,7 @@ class GeminiService {
         parsedSummary.key_topics,
         parsedSummary.analysis,
         {
-          model: 'gemini-1.5-flash',
+          model: this.modelName,
           tokens_used: tokensUsed,
           processing_time_ms: processingTime,
           cost: this.calculate_cost(tokensUsed)
@@ -294,47 +302,82 @@ ${conversationText}
   }
 
   /**
-   * Generate content with exponential backoff retry logic
-   * Handles Gemini API rate limiting and overload errors
+   * Generate content with exponential backoff retry logic and model fallback
+   * Handles Gemini API rate limiting, overload errors, and model access issues
    */
   async generateContentWithRetry(prompt, maxRetries = 3) {
+    const modelOptions = [
+      "gemini-1.5-flash-8b", // Lighter model, more likely to be available
+      "gemini-1.5-flash",
+      "gemini-1.0-pro"  // Fallback to 1.0 Pro
+    ];
+
     let lastError;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`🤖 Gemini API attempt ${attempt}/${maxRetries}`);
-        const result = await this.model.generateContent(prompt);
+    // Try different models if the current one fails
+    for (let modelIndex = 0; modelIndex < modelOptions.length; modelIndex++) {
+      const modelName = modelOptions[modelIndex];
 
-        if (attempt > 1) {
-          console.log(`✅ Gemini API succeeded on attempt ${attempt}`);
+      // Update model if it's different
+      if (modelName !== this.modelName) {
+        console.log(`🔄 Trying fallback model: ${modelName}`);
+        this.modelName = modelName;
+        this.model = this.genAI.getGenerativeModel({ model: modelName });
+      }
+
+      // Try with current model
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`🤖 Gemini API attempt ${attempt}/${maxRetries} with model ${modelName}`);
+          const result = await this.model.generateContent(prompt);
+
+          if (attempt > 1 || modelIndex > 0) {
+            console.log(`✅ Gemini API succeeded on attempt ${attempt} with model ${modelName}`);
+          }
+
+          return result;
+
+        } catch (error) {
+          lastError = error;
+
+          // Check if it's a model access error (404, model not found)
+          const isModelAccessError = error.status === 404 ||
+                                     error.message?.includes('not found') ||
+                                     error.message?.includes('does not have access');
+
+          // If model access error, try next model
+          if (isModelAccessError) {
+            console.warn(`⚠️ Model ${modelName} not accessible: ${error.message}`);
+            break; // Break retry loop, try next model
+          }
+
+          // Check if it's a rate limiting or overload error
+          const isRetryableError = error.status === 503 || // Service Unavailable
+                                  error.status === 429 || // Too Many Requests
+                                  error.message?.includes('overloaded') ||
+                                  error.message?.includes('rate limit');
+
+          if (!isRetryableError || attempt === maxRetries) {
+            console.error(`❌ Gemini API failed on attempt ${attempt}/${maxRetries} with model ${modelName}:`, error.message);
+
+            // If last model and last attempt, throw error
+            if (modelIndex === modelOptions.length - 1) {
+              throw error;
+            }
+            break; // Try next model
+          }
+
+          // Calculate exponential backoff delay: 2^attempt + random jitter
+          const baseDelay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+          const jitter = Math.random() * 1000; // 0-1s random jitter
+          const delay = baseDelay + jitter;
+
+          console.warn(`⚠️ Gemini API overloaded (attempt ${attempt}/${maxRetries}). Retrying in ${Math.round(delay/1000)}s...`);
+          console.warn(`📝 Error details: ${error.message}`);
+
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, delay));
         }
-
-        return result;
-
-      } catch (error) {
-        lastError = error;
-
-        // Check if it's a rate limiting or overload error
-        const isRetryableError = error.status === 503 || // Service Unavailable
-                                error.status === 429 || // Too Many Requests
-                                error.message?.includes('overloaded') ||
-                                error.message?.includes('rate limit');
-
-        if (!isRetryableError || attempt === maxRetries) {
-          console.error(`❌ Gemini API failed on attempt ${attempt}/${maxRetries}:`, error.message);
-          throw error;
-        }
-
-        // Calculate exponential backoff delay: 2^attempt + random jitter
-        const baseDelay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
-        const jitter = Math.random() * 1000; // 0-1s random jitter
-        const delay = baseDelay + jitter;
-
-        console.warn(`⚠️ Gemini API overloaded (attempt ${attempt}/${maxRetries}). Retrying in ${Math.round(delay/1000)}s...`);
-        console.warn(`📝 Error details: ${error.message}`);
-
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
 
