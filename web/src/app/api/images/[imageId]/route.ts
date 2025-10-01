@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
+import connectDB from '@/lib/mongodb';
 
 export async function GET(
   request: NextRequest,
@@ -6,67 +8,75 @@ export async function GET(
 ) {
   try {
     const { imageId } = await params;
+    console.log(`📸 Fetching image: ${imageId}`);
 
-    // Get backend URL from environment
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
-    const imageUrl = `${backendUrl}/api/images/${imageId}`;
-
-    console.log(`📸 Proxying image request to: ${imageUrl}`);
-    console.log(`🔧 BACKEND_URL env: ${process.env.BACKEND_URL}`);
-
-    // Fetch image from backend with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-    try {
-      const response = await fetch(imageUrl, {
-        headers: {
-          'Accept': 'image/*',
-        },
-        cache: 'no-store',
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`❌ Backend returned ${response.status} for image ${imageId}: ${errorText}`);
-        return NextResponse.json(
-          { error: 'Image not found', details: errorText },
-          { status: response.status }
-        );
-      }
-
-      // Get the image data
-      const imageBuffer = await response.arrayBuffer();
-      const contentType = response.headers.get('content-type') || 'image/jpeg';
-
-      console.log(`✅ Image ${imageId} fetched successfully (${contentType}, ${imageBuffer.byteLength} bytes)`);
-
-      // Return the image with appropriate headers
-      return new NextResponse(imageBuffer, {
-        status: 200,
-        headers: {
-          'Content-Type': contentType,
-          'Cache-Control': 'public, max-age=31536000, immutable',
-          'Content-Length': imageBuffer.byteLength.toString(),
-        },
-      });
-    } catch (fetchError: any) {
-      clearTimeout(timeoutId);
-      if (fetchError.name === 'AbortError') {
-        console.error(`❌ Timeout fetching image from backend: ${imageUrl}`);
-        return NextResponse.json(
-          { error: 'Request timeout', details: 'Backend took too long to respond' },
-          { status: 504 }
-        );
-      }
-      throw fetchError;
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(imageId)) {
+      console.error(`❌ Invalid image ID format: ${imageId}`);
+      return NextResponse.json(
+        { error: 'Invalid image ID' },
+        { status: 400 }
+      );
     }
 
+    // Connect to MongoDB
+    await connectDB();
+
+    if (!mongoose.connection.db) {
+      console.error('❌ MongoDB not connected');
+      return NextResponse.json(
+        { error: 'Database not available' },
+        { status: 503 }
+      );
+    }
+
+    // Create GridFS bucket
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+      bucketName: 'images'
+    });
+
+    // Find the file
+    const objectId = new mongoose.Types.ObjectId(imageId);
+    const files = await bucket.find({ _id: objectId }).toArray();
+
+    if (files.length === 0) {
+      console.error(`❌ Image not found in GridFS: ${imageId}`);
+      return NextResponse.json(
+        { error: 'Image not found' },
+        { status: 404 }
+      );
+    }
+
+    const file = files[0];
+    console.log(`✅ Found image: ${file.filename}, size: ${file.length} bytes`);
+
+    // Stream the file to a buffer
+    const downloadStream = bucket.openDownloadStream(objectId);
+    const chunks: Uint8Array[] = [];
+
+    await new Promise((resolve, reject) => {
+      downloadStream.on('data', (chunk) => chunks.push(chunk));
+      downloadStream.on('error', reject);
+      downloadStream.on('end', resolve);
+    });
+
+    const imageBuffer = Buffer.concat(chunks);
+    const contentType = file.metadata?.contentType || 'image/jpeg';
+
+    console.log(`✅ Image ${imageId} fetched successfully (${contentType}, ${imageBuffer.length} bytes)`);
+
+    // Return the image with appropriate headers
+    return new NextResponse(imageBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'Content-Length': imageBuffer.length.toString(),
+      },
+    });
+
   } catch (error: any) {
-    console.error('❌ Error proxying image:', error);
+    console.error('❌ Error fetching image:', error);
     console.error('❌ Error details:', {
       message: error.message,
       name: error.name,
