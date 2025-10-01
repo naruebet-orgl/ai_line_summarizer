@@ -36,7 +36,7 @@ export default function GroupsPage() {
   const [groups, setGroups] = useState<GroupSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('active');
+  const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('all');
   const [stats, setStats] = useState({
     totalGroups: 0,
     activeGroups: 0,
@@ -65,17 +65,27 @@ export default function GroupsPage() {
           s.room_type === 'group' || s.room_id?.type === 'group'
         );
 
+        // Deduplicate by room_name - keep the most recent session for each group
+        const uniqueGroupsMap = new Map<string, GroupSession>();
+        groupSessions.forEach((session: GroupSession) => {
+          const existing = uniqueGroupsMap.get(session.room_name);
+          if (!existing || new Date(session.start_time) > new Date(existing.start_time)) {
+            uniqueGroupsMap.set(session.room_name, session);
+          }
+        });
+        const uniqueGroups = Array.from(uniqueGroupsMap.values());
+
         // Filter by status if needed
-        const filteredGroups = filter === 'all' ? groupSessions :
-          groupSessions.filter((s: GroupSession) => s.status === filter);
+        const filteredGroups = filter === 'all' ? uniqueGroups :
+          uniqueGroups.filter((s: GroupSession) => s.status === filter);
 
         setGroups(filteredGroups);
         setStats({
-          totalGroups: groupSessions.length,
-          activeGroups: groupSessions.filter((s: GroupSession) => s.status === 'active').length,
-          totalMessages: groupSessions.reduce((acc: number, s: GroupSession) => acc + s.message_count, 0),
-          avgMessagesPerGroup: groupSessions.length > 0 ?
-            Math.round(groupSessions.reduce((acc: number, s: GroupSession) => acc + s.message_count, 0) / groupSessions.length) : 0
+          totalGroups: uniqueGroups.length,
+          activeGroups: uniqueGroups.filter((s: GroupSession) => s.status === 'active').length,
+          totalMessages: uniqueGroups.reduce((acc: number, s: GroupSession) => acc + s.message_count, 0),
+          avgMessagesPerGroup: uniqueGroups.length > 0 ?
+            Math.round(uniqueGroups.reduce((acc: number, s: GroupSession) => acc + s.message_count, 0) / uniqueGroups.length) : 0
         });
       } else {
         // No groups found
