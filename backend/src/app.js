@@ -105,8 +105,15 @@ app.get('/api/images/:imageId', async (req, res) => {
     const mongoose = require('mongoose');
     const { ObjectId } = require('mongodb');
 
+    // Check if MongoDB is connected
+    if (!mongoose.connection.db) {
+      console.error('❌ MongoDB not connected');
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
     // Validate ObjectId
     if (!ObjectId.isValid(imageId)) {
+      console.error(`❌ Invalid image ID: ${imageId}`);
       return res.status(400).json({ error: 'Invalid image ID' });
     }
 
@@ -119,10 +126,12 @@ app.get('/api/images/:imageId', async (req, res) => {
     const files = await bucket.find({ _id: new ObjectId(imageId) }).toArray();
 
     if (files.length === 0) {
+      console.error(`❌ Image not found in GridFS: ${imageId}`);
       return res.status(404).json({ error: 'Image not found' });
     }
 
     const file = files[0];
+    console.log(`✅ Found image: ${file.filename}, size: ${file.length} bytes`);
 
     // Set appropriate headers
     res.set({
