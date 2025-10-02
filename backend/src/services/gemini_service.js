@@ -16,8 +16,7 @@ class GeminiService {
     // Try different model versions for better compatibility with Google AI Studio API
     const modelOptions = [
       "gemini-1.5-flash-8b", // Lighter model, more likely to be available
-      "gemini-1.5-flash",
-      "gemini-1.0-pro"  // Fallback to 1.0 Pro
+      "gemini-1.5-flash"
     ];
 
     this.modelName = modelOptions[0]; // Default to lighter model
@@ -308,8 +307,7 @@ ${conversationText}
   async generateContentWithRetry(prompt, maxRetries = 3) {
     const modelOptions = [
       "gemini-1.5-flash-8b", // Lighter model, more likely to be available
-      "gemini-1.5-flash",
-      "gemini-1.0-pro"  // Fallback to 1.0 Pro
+      "gemini-1.5-flash"
     ];
 
     let lastError;
