@@ -13,10 +13,11 @@ class GeminiService {
 
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-    // Try different model versions for better compatibility with Google AI Studio API
+    // Use current stable Gemini models (as of 2025)
     const modelOptions = [
-      "gemini-1.5-flash-8b", // Lighter model, more likely to be available
-      "gemini-1.5-flash"
+      "gemini-2.5-flash-lite", // Lightweight, cost-efficient model
+      "gemini-2.5-flash",      // Balanced performance model
+      "gemini-2.0-flash-lite"  // Fallback lightweight model
     ];
 
     this.modelName = modelOptions[0]; // Default to lighter model
@@ -306,8 +307,9 @@ ${conversationText}
    */
   async generateContentWithRetry(prompt, maxRetries = 3) {
     const modelOptions = [
-      "gemini-1.5-flash-8b", // Lighter model, more likely to be available
-      "gemini-1.5-flash"
+      "gemini-2.5-flash-lite", // Lightweight, cost-efficient model
+      "gemini-2.5-flash",      // Balanced performance model
+      "gemini-2.0-flash-lite"  // Fallback lightweight model
     ];
 
     let lastError;
