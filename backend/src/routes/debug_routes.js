@@ -1,0 +1,221 @@
+/**
+ * Debug Routes
+ * Diagnostic endpoints for troubleshooting production issues
+ */
+
+const express = require('express');
+const { ChatSession, Room, Owner, Message } = require('../models');
+
+const router = express.Router();
+
+/**
+ * Debug: Get database statistics
+ * GET /api/debug/stats
+ */
+router.get('/stats', async (req, res) => {
+  console.log('🔍 Debug: Getting database statistics');
+
+  try {
+    const stats = {
+      timestamp: new Date().toISOString(),
+      collections: {}
+    };
+
+    // Count documents in each collection
+    stats.collections.owners = await Owner.countDocuments();
+    stats.collections.rooms = await Room.countDocuments();
+    stats.collections.sessions = await ChatSession.countDocuments();
+    stats.collections.messages = await Message.countDocuments();
+
+    // Get session breakdown by status
+    const sessionsByStatus = await ChatSession.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    stats.sessions_by_status = sessionsByStatus.reduce((acc, item) => {
+      acc[item._id] = item.count;
+      return acc;
+    }, {});
+
+    // Get room breakdown by type
+    const roomsByType = await Room.aggregate([
+      {
+        $group: {
+          _id: '$type',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    stats.rooms_by_type = roomsByType.reduce((acc, item) => {
+      acc[item._id] = item.count;
+      return acc;
+    }, {});
+
+    // Get recent sessions (last 10)
+    const recentSessions = await ChatSession.find()
+      .sort({ start_time: -1 })
+      .limit(10)
+      .select('session_id room_name room_type status start_time message_logs')
+      .lean();
+
+    stats.recent_sessions = recentSessions.map(session => ({
+      session_id: session.session_id,
+      room_name: session.room_name,
+      room_type: session.room_type,
+      status: session.status,
+      start_time: session.start_time,
+      message_count: session.message_logs?.length || 0
+    }));
+
+    // Get owner info
+    const owners = await Owner.find().select('name email line_channel_id').lean();
+    stats.owners = owners;
+
+    console.log('✅ Debug stats retrieved successfully');
+    res.status(200).json(stats);
+
+  } catch (error) {
+    console.error('❌ Debug stats error:', error);
+    res.status(500).json({
+      error: 'Failed to get debug stats',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * Debug: Get specific session details
+ * GET /api/debug/session/:sessionId
+ */
+router.get('/session/:sessionId', async (req, res) => {
+  console.log(`🔍 Debug: Getting session ${req.params.sessionId}`);
+
+  try {
+    const session = await ChatSession.findOne({ session_id: req.params.sessionId })
+      .populate('room_id')
+      .populate('owner_id')
+      .populate('summary_id')
+      .lean();
+
+    if (!session) {
+      return res.status(404).json({
+        error: 'Session not found',
+        session_id: req.params.sessionId,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get messages from Message collection
+    const messages = await Message.find({ session_id: session.session_id })
+      .sort({ timestamp: 1 })
+      .limit(20)
+      .lean();
+
+    res.status(200).json({
+      session,
+      message_collection_count: messages.length,
+      embedded_message_count: session.message_logs?.length || 0,
+      recent_messages: messages.slice(0, 5)
+    });
+
+  } catch (error) {
+    console.error('❌ Debug session error:', error);
+    res.status(500).json({
+      error: 'Failed to get session details',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * Debug: Get all rooms
+ * GET /api/debug/rooms
+ */
+router.get('/rooms', async (req, res) => {
+  console.log('🔍 Debug: Getting all rooms');
+
+  try {
+    const rooms = await Room.find()
+      .populate('owner_id', 'name email')
+      .sort({ created_at: -1 })
+      .limit(50)
+      .lean();
+
+    res.status(200).json({
+      count: rooms.length,
+      rooms: rooms.map(room => ({
+        _id: room._id,
+        name: room.name,
+        type: room.type,
+        line_room_id: room.line_room_id,
+        owner: room.owner_id,
+        created_at: room.created_at
+      }))
+    });
+
+  } catch (error) {
+    console.error('❌ Debug rooms error:', error);
+    res.status(500).json({
+      error: 'Failed to get rooms',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * Debug: Test database connection
+ * GET /api/debug/connection
+ */
+router.get('/connection', async (req, res) => {
+  console.log('🔍 Debug: Testing database connection');
+
+  try {
+    const mongoose = require('mongoose');
+
+    const connectionState = mongoose.connection.readyState;
+    const stateMap = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    };
+
+    const dbInfo = {
+      state: stateMap[connectionState],
+      state_code: connectionState,
+      database: mongoose.connection.name,
+      host: mongoose.connection.host,
+      timestamp: new Date().toISOString()
+    };
+
+    if (connectionState === 1) {
+      // Try a simple query
+      const testCount = await Owner.countDocuments();
+      dbInfo.test_query_success = true;
+      dbInfo.owner_count = testCount;
+    } else {
+      dbInfo.test_query_success = false;
+    }
+
+    res.status(200).json(dbInfo);
+
+  } catch (error) {
+    console.error('❌ Debug connection error:', error);
+    res.status(500).json({
+      error: 'Failed to check connection',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+module.exports = router;

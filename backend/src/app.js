@@ -72,6 +72,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Routes
 const lineRoutes = require('./routes/line_routes');
+const debugRoutes = require('./routes/debug_routes');
 
 // tRPC setup (will be enabled after installing dependencies)
 try {
@@ -95,6 +96,7 @@ try {
 
 // API Routes
 app.use('/api/line', lineRoutes);
+app.use('/api/debug', debugRoutes);
 
 // Image serving endpoint from GridFS
 app.get('/api/images/:imageId', async (req, res) => {
