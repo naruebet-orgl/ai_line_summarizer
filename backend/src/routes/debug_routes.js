@@ -293,4 +293,63 @@ router.get('/config', async (req, res) => {
   }
 });
 
+/**
+ * Debug: Fix legacy owner index
+ * POST /api/debug/fix-owner-index
+ */
+router.post('/fix-owner-index', async (req, res) => {
+  console.log('🔧 Debug: Fixing legacy owner index');
+
+  try {
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+    const ownersCollection = db.collection('owners');
+
+    // List current indexes
+    const indexes = await ownersCollection.indexes();
+    console.log('Current indexes:', indexes.map(i => i.name));
+
+    const results = {
+      before: indexes.map(i => ({ name: i.name, key: i.key })),
+      dropped: [],
+      errors: []
+    };
+
+    // Drop legacy indexes
+    const legacyIndexes = ['line_official_account_id_1', 'is_active_1'];
+
+    for (const indexName of legacyIndexes) {
+      if (indexes.some(idx => idx.name === indexName)) {
+        try {
+          await ownersCollection.dropIndex(indexName);
+          results.dropped.push(indexName);
+          console.log(`✅ Dropped index: ${indexName}`);
+        } catch (error) {
+          results.errors.push({ index: indexName, error: error.message });
+          console.error(`❌ Failed to drop ${indexName}:`, error.message);
+        }
+      }
+    }
+
+    // List remaining indexes
+    const remainingIndexes = await ownersCollection.indexes();
+    results.after = remainingIndexes.map(i => ({ name: i.name, key: i.key }));
+
+    res.status(200).json({
+      success: true,
+      message: 'Legacy indexes processed',
+      results,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Debug fix-owner-index error:', error);
+    res.status(500).json({
+      error: 'Failed to fix owner index',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 module.exports = router;
