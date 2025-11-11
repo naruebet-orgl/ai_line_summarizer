@@ -350,9 +350,11 @@ class LineWebhookHandler {
       if (!owner) {
         console.log(`🔧 Creating default owner for LINE Channel ID ${channelId}`);
         owner = await Owner.create({
-          email: 'auto@line-bot.local',
-          name: 'Auto LINE Bot',
+          email: `auto-${channelId}@line-bot.local`,
+          name: `Auto LINE Bot (${channelId})`,
           line_channel_id: channelId,
+          line_channel_secret: process.env.LINE_CHANNEL_SECRET,
+          line_access_token: process.env.LINE_CHANNEL_ACCESS_TOKEN,
           plan: 'free'
         });
         console.log(`✅ Created default owner: ${owner.name}`);
