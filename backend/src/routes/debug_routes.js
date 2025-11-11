@@ -218,4 +218,79 @@ router.get('/connection', async (req, res) => {
   }
 });
 
+/**
+ * Debug: Get raw LINE events
+ * GET /api/debug/raw-events
+ */
+router.get('/raw-events', async (req, res) => {
+  console.log('🔍 Debug: Getting raw LINE events');
+
+  try {
+    const { LineEventsRaw } = require('../models');
+    const limit = parseInt(req.query.limit) || 10;
+
+    const rawEvents = await LineEventsRaw.find()
+      .sort({ received_at: -1 })
+      .limit(limit)
+      .lean();
+
+    res.status(200).json({
+      count: rawEvents.length,
+      events: rawEvents.map(event => ({
+        _id: event._id,
+        event_type: event.event_type,
+        user_id: event.user_id,
+        received_at: event.received_at,
+        payload: event.payload
+      }))
+    });
+
+  } catch (error) {
+    console.error('❌ Debug raw events error:', error);
+    res.status(500).json({
+      error: 'Failed to get raw events',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * Debug: Check environment configuration
+ * GET /api/debug/config
+ */
+router.get('/config', async (req, res) => {
+  console.log('🔍 Debug: Checking environment configuration');
+
+  try {
+    const config = require('../config');
+
+    res.status(200).json({
+      environment: config.app.nodeEnv,
+      line: {
+        channel_id_configured: !!process.env.LINE_CHANNEL_ID,
+        channel_id_value: process.env.LINE_CHANNEL_ID,
+        channel_secret_configured: !!process.env.LINE_CHANNEL_SECRET,
+        access_token_configured: !!process.env.LINE_CHANNEL_ACCESS_TOKEN
+      },
+      mongodb: {
+        uri_configured: !!config.mongodb.uri,
+        db_name: config.mongodb.dbName
+      },
+      gemini: {
+        api_key_configured: !!config.gemini.apiKey
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Debug config error:', error);
+    res.status(500).json({
+      error: 'Failed to get config',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 module.exports = router;
