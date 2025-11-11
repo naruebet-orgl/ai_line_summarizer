@@ -6,6 +6,7 @@
 const express = require('express');
 const lineService = require('../services/line_service');
 const LineWebhookHandler = require('../handlers/line_webhook_handler');
+const googleAppsScriptService = require('../services/google_apps_script_service');
 
 // Create webhook handler instance
 const lineWebhookHandler = new LineWebhookHandler();
@@ -88,9 +89,23 @@ router.post('/webhook', validate_line_signature, async (req, res) => {
     
     // Process webhook events
     await lineWebhookHandler.handle_webhook_events(events);
-    
+
+    // Trigger Google Apps Script webhook (non-blocking - don't await)
+    // This runs in the background and won't delay the response to LINE
+    googleAppsScriptService.trigger_webhook(req.body)
+      .then(result => {
+        if (result.success) {
+          console.log('✅ Google Apps Script webhook triggered successfully');
+        } else if (!result.skipped) {
+          console.log('⚠️ Google Apps Script webhook failed, but continuing');
+        }
+      })
+      .catch(error => {
+        console.error('❌ Unexpected error triggering Google Apps Script:', error);
+      });
+
     console.log('✅ LINE webhook processed successfully');
-    res.status(200).json({ 
+    res.status(200).json({
       message: 'Webhook processed successfully',
       events_count: events.length,
       timestamp: new Date().toISOString()

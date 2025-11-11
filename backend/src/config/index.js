@@ -79,6 +79,11 @@ const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
     model: 'gemini-1.5-flash' // Free tier model
+  },
+
+  // Google Apps Script Integration
+  googleAppsScript: {
+    webhookUrl: 'https://script.google.com/macros/s/AKfycbw2KuDcXK8UkUjuxRrmLcoxLrJwNxcYn8onXoK0oBNddPljjmQ-rGp6M9gwWxuPpu8A/exec'
   }
 };
 
