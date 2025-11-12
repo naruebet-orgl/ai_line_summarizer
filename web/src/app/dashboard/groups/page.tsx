@@ -1,17 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { formatDate, formatRelativeTime, getStatusColor } from '@/lib/utils';
-import { Users, MessageSquare, Clock, Eye, RefreshCw, Activity, Brain } from 'lucide-react';
+import { Users, MessageSquare, Clock, Eye, RefreshCw, Activity, Brain, Search, ArrowUpDown } from 'lucide-react';
 
 interface GroupSession {
   _id: string;
   session_id: string;
   room_name: string;
+  line_room_id: string;
   room_type: 'group';
   status: 'active' | 'closed' | 'summarizing';
   start_time: string;
@@ -37,6 +39,8 @@ export default function GroupsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'active' | 'messages'>('active');
   const [stats, setStats] = useState({
     totalGroups: 0,
     activeGroups: 0,
@@ -49,43 +53,44 @@ export default function GroupsPage() {
       setLoading(true);
       setError(null);
 
-      // Fetch all sessions from backend and filter for groups
-      const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{"limit":50}}}`);
+      // Fetch ALL AI groups using dedicated endpoint (no pagination)
+      const response = await fetch(`/api/trpc/rooms.getAiGroups?batch=1&input={"0":{"json":{}}}`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch groups: ${response.status}`);
       }
 
       const data = await response.json();
-      const sessionData = data[0]?.result?.data;
+      const result = data[0]?.result?.data;
 
-      if (sessionData && sessionData.sessions) {
-        // Filter for group sessions only
-        const groupSessions = sessionData.sessions.filter((s: any) =>
-          s.room_type === 'group' || s.room_id?.type === 'group'
-        );
+      if (result && result.groups) {
+        // Map groups to group sessions format
+        const allGroupRooms = result.groups.map((group: any) => {
+          // Determine status based on last activity (within 24h = active)
+          const lastActivity = group.last_activity ? new Date(group.last_activity) : null;
+          const isRecent = lastActivity && (Date.now() - lastActivity.getTime()) < 24 * 60 * 60 * 1000;
 
-        // Deduplicate by room_name - keep the most recent session for each group
-        const uniqueGroupsMap = new Map<string, GroupSession>();
-        groupSessions.forEach((session: GroupSession) => {
-          const existing = uniqueGroupsMap.get(session.room_name);
-          if (!existing || new Date(session.start_time) > new Date(existing.start_time)) {
-            uniqueGroupsMap.set(session.room_name, session);
-          }
+          return {
+            _id: group.room_id,
+            session_id: group.room_id,
+            room_name: group.group_name,
+            line_room_id: group.line_group_id,
+            room_type: 'group' as const,
+            status: isRecent ? 'active' as const : 'closed' as const,
+            start_time: group.created_at || group.last_activity || new Date().toISOString(),
+            message_count: group.statistics?.total_messages || 0,
+            has_summary: (group.statistics?.total_summaries || 0) > 0,
+            last_activity: group.last_activity
+          };
         });
-        const uniqueGroups = Array.from(uniqueGroupsMap.values());
 
-        // Filter by status if needed
-        const filteredGroups = filter === 'all' ? uniqueGroups :
-          uniqueGroups.filter((s: GroupSession) => s.status === filter);
-
-        setGroups(filteredGroups);
+        setGroups(allGroupRooms);
         setStats({
-          totalGroups: uniqueGroups.length,
-          activeGroups: uniqueGroups.filter((s: GroupSession) => s.status === 'active').length,
-          totalMessages: uniqueGroups.reduce((acc: number, s: GroupSession) => acc + s.message_count, 0),
-          avgMessagesPerGroup: uniqueGroups.length > 0 ?
-            Math.round(uniqueGroups.reduce((acc: number, s: GroupSession) => acc + s.message_count, 0) / uniqueGroups.length) : 0
+          totalGroups: allGroupRooms.length,
+          activeGroups: allGroupRooms.filter((g: GroupSession) => g.status === 'active').length,
+          totalMessages: allGroupRooms.reduce((acc: number, g: GroupSession) => acc + g.message_count, 0),
+          avgMessagesPerGroup: allGroupRooms.length > 0 ?
+            Math.round(allGroupRooms.reduce((acc: number, g: GroupSession) => acc + g.message_count, 0) / allGroupRooms.length) : 0
         });
       } else {
         // No groups found
@@ -114,7 +119,49 @@ export default function GroupsPage() {
 
   useEffect(() => {
     fetchGroups();
-  }, [filter]);
+  }, []);
+
+  // Filter, search, and sort groups
+  const filteredAndSortedGroups = React.useMemo(() => {
+    let filtered = groups;
+
+    // Apply status filter
+    if (filter !== 'all') {
+      filtered = filtered.filter(g => g.status === filter);
+    }
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(g =>
+        g.room_name.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply sorting
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case 'name-asc':
+          return a.room_name.localeCompare(b.room_name);
+        case 'name-desc':
+          return b.room_name.localeCompare(a.room_name);
+        case 'active':
+          // Active first, then by last activity
+          if (a.status !== b.status) {
+            return a.status === 'active' ? -1 : 1;
+          }
+          const aTime = a.last_activity ? new Date(a.last_activity).getTime() : 0;
+          const bTime = b.last_activity ? new Date(b.last_activity).getTime() : 0;
+          return bTime - aTime;
+        case 'messages':
+          return b.message_count - a.message_count;
+        default:
+          return 0;
+      }
+    });
+
+    return sorted;
+  }, [groups, filter, searchQuery, sortBy]);
 
 
   const getStatusIcon = (status: string) => {
@@ -232,51 +279,91 @@ export default function GroupsPage() {
         </Card>
       </div>
 
-      {/* Filter Buttons */}
-      <div className="flex space-x-2">
-        <Button
-          variant={filter === 'all' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setFilter('all')}
-        >
-          All Groups
-        </Button>
-        <Button
-          variant={filter === 'active' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setFilter('active')}
-        >
-          Active
-        </Button>
-        <Button
-          variant={filter === 'closed' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setFilter('closed')}
-        >
-          Completed
-        </Button>
+      {/* Search and Filter Controls */}
+      <div className="flex flex-col md:flex-row gap-4">
+        {/* Search */}
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Input
+            type="text"
+            placeholder="Search groups..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+
+        {/* Sort */}
+        <div className="flex items-center gap-2">
+          <ArrowUpDown className="w-4 h-4 text-gray-600" />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="px-3 py-2 border rounded-md text-sm bg-white"
+          >
+            <option value="active">Active First</option>
+            <option value="name-asc">Name (A-Z)</option>
+            <option value="name-desc">Name (Z-A)</option>
+            <option value="messages">Most Messages</option>
+          </select>
+        </div>
+
+        {/* Filter Buttons */}
+        <div className="flex space-x-2">
+          <Button
+            variant={filter === 'all' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('all')}
+          >
+            All
+          </Button>
+          <Button
+            variant={filter === 'active' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('active')}
+          >
+            Active
+          </Button>
+          <Button
+            variant={filter === 'closed' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('closed')}
+          >
+            Closed
+          </Button>
+        </div>
       </div>
 
       {/* Groups Grid */}
-      {groups.length === 0 ? (
+      {filteredAndSortedGroups.length === 0 ? (
         <Card>
           <CardContent className="p-12">
             <div className="text-center">
               <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-base font-normal text-gray-900 mb-2">No group chats found</h3>
+              <h3 className="text-base font-normal text-gray-900 mb-2">
+                {groups.length === 0 ? 'No group chats found' : 'No groups match your filters'}
+              </h3>
               <p className="text-gray-500 mb-4">
-                Add your LINE bot to group chats to start tracking conversations.
+                {groups.length === 0
+                  ? 'Add your LINE bot to group chats to start tracking conversations.'
+                  : 'Try adjusting your search or filter criteria.'}
               </p>
-              <Button variant="outline" onClick={fetchGroups}>
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Refresh
-              </Button>
+              {groups.length === 0 && (
+                <Button variant="outline" onClick={fetchGroups}>
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Refresh
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {groups.map((group) => (
+        <div>
+          <div className="mb-4 text-sm text-gray-600">
+            Showing {filteredAndSortedGroups.length} of {stats.totalGroups} groups
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredAndSortedGroups.map((group) => (
             <Card key={group.session_id} className="hover:shadow-md transition-shadow">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -323,7 +410,7 @@ export default function GroupsPage() {
 
                 {/* Action Button */}
                 <div className="pt-2 border-t">
-                  <Link href={`/dashboard/groups/${encodeURIComponent(group.room_name)}/sessions`} className="w-full">
+                  <Link href={`/dashboard/groups/${group.line_room_id}/sessions`} className="w-full">
                     <Button variant="outline" size="sm" className="w-full">
                       <Eye className="w-4 h-4 mr-2" />
                       View Group Sessions
@@ -333,6 +420,7 @@ export default function GroupsPage() {
               </CardContent>
             </Card>
           ))}
+          </div>
         </div>
       )}
     </div>

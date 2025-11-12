@@ -12,7 +12,7 @@ const sessionsRouter = router({
   list: loggedProcedure
     .input(z.object({
       page: z.number().default(1),
-      limit: z.number().max(100).default(20),
+      limit: z.number().max(10000).default(20),
       status: z.enum(['active', 'closed', 'summarizing']).optional(),
       roomId: z.string().optional(),
       room_type: z.enum(['individual', 'group']).optional()

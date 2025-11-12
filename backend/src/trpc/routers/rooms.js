@@ -12,12 +12,18 @@ const roomsRouter = router({
   list: loggedProcedure
     .input(z.object({
       page: z.number().default(1),
-      limit: z.number().max(100).default(20),
+      limit: z.number().max(10000).default(20),
       isActive: z.boolean().optional(),
       type: z.enum(['individual', 'group']).optional()
     }))
     .query(async ({ input }) => {
-      const { page, limit, isActive, type } = input;
+      let { page, limit, isActive, type } = input;
+
+      // If querying for groups, return ALL groups by default (no pagination)
+      if (type === 'group' && limit === 20) {
+        limit = 10000; // Override default limit for groups
+      }
+
       const skip = (page - 1) * limit;
 
       const filter = {};
@@ -92,7 +98,8 @@ const roomsRouter = router({
   // Get all groups the AI bot is in
   getAiGroups: loggedProcedure
     .input(z.object({
-      ownerId: z.string().optional()
+      ownerId: z.string().optional(),
+      isActive: z.boolean().optional()
     }))
     .query(async ({ input }) => {
       // Get owner ID - use provided or get first owner
@@ -106,7 +113,11 @@ const roomsRouter = router({
         ownerId = owner._id;
       }
 
-      const groups = await Room.get_ai_groups(ownerId);
+      // Pass isActive param (null means return all groups)
+      const isActiveFilter = input.isActive !== undefined ? input.isActive : null;
+      let groups = await Room.get_ai_groups(ownerId, isActiveFilter);
+
+      // NOTE: Fallback removed - get_ai_groups now returns all groups without owner_id filter
 
       return {
         groups: groups.map(group => ({
@@ -115,7 +126,8 @@ const roomsRouter = router({
           group_name: group.name,
           statistics: group.statistics,
           created_at: group.created_at,
-          last_activity: group.statistics.last_activity_at
+          last_activity: group.statistics.last_activity_at,
+          is_active: group.is_active
         })),
         total: groups.length,
         owner_id: ownerId

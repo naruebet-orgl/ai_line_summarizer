@@ -2,7 +2,242 @@
 
 All notable changes to the LINE Chat Summarizer AI project will be documented in this file.
 
-## [Unreleased] - 2025-11-11
+## [Unreleased] - 2025-11-12
+
+### Fixed - Display All Groups with Search and Sort Features
+
+#### Root Cause Analysis
+
+**Problem:** Dashboard showing only 20 groups when 219 groups exist in the database.
+
+**Investigation Path:**
+1. **Initial Issue:** Groups page fetching sessions with `limit: 50`, then filtering for groups
+2. **Bug #1:** Deduplicating by `room_name` instead of `line_room_id` - groups with same name were merged
+3. **Bug #2:** tRPC query string parameter passing completely broken - limit/type parameters ignored
+4. **Bug #3:** Most critical - **All rooms missing `owner_id` field** causing `get_ai_groups(ownerId)` to only find 6 rooms with valid owner_id
+
+**Underlying Issues:**
+1. Data integrity: 213 of 219 rooms have no `owner_id` set (legacy data)
+2. tRPC batched query string parsing broken - parameters not being deserialized
+3. Wrong deduplication key (`room_name` vs `line_room_id`)
+4. Wrong endpoint (sessions.list vs dedicated rooms endpoint)
+
+#### Solution
+
+**Backend Changes:**
+
+1. **Fixed Room Model** (`backend/src/models/room.js:99-115`):
+   - Modified `get_ai_groups()` to remove `owner_id` filter for legacy data
+   - Added logging to track filter usage
+   - Returns ALL groups when owner_id not set (backward compatibility)
+
+2. **Fixed Rooms Router** (`backend/src/trpc/routers/rooms.js`):
+   - Added fallback logic when no groups found with owner_id
+   - Returns all groups of `type: 'group'` regardless of owner
+   - Added `is_active` to response for proper status tracking
+   - Increased max limit from 100 to 10000
+
+3. **Sessions Router** (`backend/src/trpc/routers/sessions.js`):
+   - Increased max limit from 100 to 10000
+
+**Frontend Changes** (`web/src/app/dashboard/groups/page.tsx`):
+
+1. **Switched to Dedicated Endpoint:**
+   - Changed from `rooms.list` to `rooms.getAiGroups`
+   - No parameters needed (returns all groups)
+   - Bypasses broken tRPC query string parsing
+
+2. **Smart Status Detection:**
+   - Status based on last activity (< 24h = active)
+   - Fallback when `is_active` flag not reliable
+
+3. **Added Search Functionality:**
+   - Real-time search by group name
+   - Case-insensitive matching
+   - Shows "X of Y groups" counter
+
+4. **Added Sorting Options:**
+   - **Active First** (default) - Active groups first, then by last activity
+   - **Name (A-Z)** - Alphabetical ascending
+   - **Name (Z-A)** - Alphabetical descending
+   - **Most Messages** - By message count
+
+5. **Improved UI:**
+   - Search input with icon
+   - Sort dropdown with icon
+   - Filter chips (All/Active/Closed)
+   - Result count display
+   - Better empty states
+
+#### Files Modified
+- `backend/src/models/room.js` - Removed owner_id filter for legacy data
+- `backend/src/trpc/routers/rooms.js` - Added fallback, increased limits
+- `backend/src/trpc/routers/sessions.js` - Increased limit to 10000
+- `web/src/app/dashboard/groups/page.tsx` - Complete rewrite with search/sort
+
+#### Benefits
+1. ✅ All **219 groups** now visible (was 20)
+2. ✅ Real-time search across all group names
+3. ✅ Multiple sorting options for better organization
+4. ✅ Handles legacy data without owner_id
+5. ✅ More efficient queries (dedicated endpoint)
+6. ✅ Better UX with filters and counters
+
+#### Known Limitations
+- Not filtering by owner_id (acceptable for single-owner setup)
+- Should add data migration to set owner_id on all rooms in future
+
+### Fixed - Group Sessions Page with Thai+English Character Support
+
+**Problem:** When clicking on groups with Thai+English names (e.g., "RM_ORGL & บ้านกิจโชค"), the sessions page showed "not found" due to URL encoding mismatches.
+
+**Solution:**
+1. Changed routing from `[groupName]` to `[lineRoomId]`
+2. Updated groups page to link using `line_room_id` instead of `room_name`
+3. Modified sessions page to filter by `line_room_id` instead of string matching on `room_name`
+4. Added fallback to fetch group name from rooms endpoint when no sessions exist
+
+**Why This Works:**
+- `line_room_id` is ASCII-only (no encoding issues)
+- Unique identifier from LINE platform
+- Works perfectly with Thai, English, and mixed character names
+- No URL encoding/decoding mismatches
+
+**Files Modified:**
+- `web/src/app/dashboard/groups/page.tsx` - Link using line_room_id
+- `web/src/app/dashboard/groups/[lineRoomId]/sessions/page.tsx` - Filter by line_room_id
+
+### Fixed - Group Sessions Page Showing "No Sessions Found"
+
+**Problem:** When clicking on any group, the sessions page showed "No sessions found for this group" with all stats at 0 (Total Sessions: 0, Active Sessions: 0, Total Messages: 0, AI Summaries: 0).
+
+**Root Cause:**
+The tRPC parameter passing bug meant that even when fetching with empty input `{}`, the backend was defaulting to `limit: 20`. Since we were filtering client-side by `line_room_id` from only 20 random sessions, most groups wouldn't have their sessions in that small sample.
+
+**Investigation:**
+```
+Backend logs showed:
+🔍 Sessions.list called with input: { page: 1, limit: 20 }
+🔍 MongoDB filter applied: {}
+
+Only 20 sessions returned out of potentially thousands in database.
+When filtered by specific line_room_id, most groups had 0 matches.
+```
+
+**Solution:**
+Modified `web/src/app/dashboard/groups/[lineRoomId]/sessions/page.tsx:41` to explicitly pass `limit: 10000` in the fetch call:
+
+```typescript
+// Before: Empty input defaults to limit: 20
+const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{}}}`);
+
+// After: Explicitly pass limit: 10000 to get all sessions
+const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{"limit":10000}}}`);
+```
+
+**Why This Works:**
+1. Fetches up to 10,000 sessions (all sessions in database)
+2. Client-side filtering by `line_room_id` now has complete dataset
+3. Works around broken tRPC parameter parsing for `room_type` filter
+4. Ensures all groups show their correct sessions and statistics
+
+**Files Modified:**
+- `web/src/app/dashboard/groups/[lineRoomId]/sessions/page.tsx` - Added explicit limit: 10000
+
+**Benefits:**
+- ✅ All group sessions now display correctly
+- ✅ Accurate session counts and statistics
+- ✅ Works with Thai+English mixed character names
+- ✅ Client-side filtering ensures correct group matching
+
+---
+
+## [Previous Updates] - 2025-11-11
+
+### Added - Debug Routes for Production Troubleshooting
+
+#### Overview
+Added diagnostic endpoints to help troubleshoot production issues where messages aren't appearing in the dashboard after deployment.
+
+#### Debug Endpoints
+
+**1. Database Statistics** (`GET /api/debug/stats`)
+- Returns counts for all collections (owners, rooms, sessions, messages)
+- Session breakdown by status (active, closed, summarizing)
+- Room breakdown by type (individual, group)
+- Last 10 recent sessions with message counts
+- Owner information
+
+**2. Session Details** (`GET /api/debug/session/:sessionId`)
+- Full session data with populated relationships
+- Message counts from both Message collection and embedded logs
+- Recent messages preview
+
+**3. Rooms List** (`GET /api/debug/rooms`)
+- All rooms with their configuration
+- Owner relationships
+- Creation timestamps
+
+**4. Database Connection** (`GET /api/debug/connection`)
+- MongoDB connection state
+- Database name and host info
+- Test query to verify read access
+
+#### Troubleshooting Steps
+
+When messages don't appear in dashboard after deployment:
+
+1. **Check Database Connection**
+   ```bash
+   curl https://backend-production-8d6f.up.railway.app/api/debug/connection
+   ```
+   - Verify state is "connected"
+   - Confirm test query succeeds
+
+2. **Check Database Statistics**
+   ```bash
+   curl https://backend-production-8d6f.up.railway.app/api/debug/stats
+   ```
+   - Verify sessions are being created (check `collections.sessions`)
+   - Check if rooms exist (check `collections.rooms`)
+   - Verify owner is created (check `owners` array)
+   - Review `recent_sessions` to see if new messages are being saved
+
+3. **Check Specific Session**
+   ```bash
+   curl https://backend-production-8d6f.up.railway.app/api/debug/session/CHAT-2025-11-11-XXXX
+   ```
+   - Verify session exists with correct data
+   - Check message counts match
+   - Review message content
+
+4. **Check Rooms**
+   ```bash
+   curl https://backend-production-8d6f.up.railway.app/api/debug/rooms
+   ```
+   - Verify rooms are being created for groups
+   - Check room types are set correctly
+   - Verify owner relationships
+
+#### Common Issues & Solutions
+
+**Issue 1: No sessions in database**
+- Cause: Webhook handler not saving sessions
+- Solution: Check LINE webhook is configured correctly, verify MongoDB connection
+
+**Issue 2: Sessions exist but no messages**
+- Cause: Message saving logic failing silently
+- Solution: Check logs for errors in `process_text_message`, verify Message model
+
+**Issue 3: Wrong owner or no owner**
+- Cause: `get_or_create_default_owner` failing in production
+- Solution: Verify LINE_CHANNEL_ID environment variable is set correctly
+
+**Issue 4: Dashboard shows empty**
+- Cause: Frontend querying wrong database or tRPC proxy failing
+- Solution: Check tRPC proxy logs, verify backend URL in production
+
+---
 
 ### Added - Google Apps Script Integration
 

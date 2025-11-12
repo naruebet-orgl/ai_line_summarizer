@@ -96,12 +96,21 @@ RoomSchema.methods.get_room_summary = function() {
 
 // Static methods
 // Get all groups the AI bot is in
-RoomSchema.statics.get_ai_groups = function(ownerId) {
-  return this.find({
-    owner_id: ownerId,
-    type: 'group',
-    is_active: true
-  }).select('line_room_id name statistics created_at updated_at').sort({ 'statistics.last_activity_at': -1 });
+RoomSchema.statics.get_ai_groups = function(ownerId, isActive = null) {
+  const filter = {
+    type: 'group'
+    // NOTE: Not filtering by owner_id to handle legacy data without owner_id
+    // In production with multiple owners, this should be re-enabled
+  };
+
+  // Only filter by is_active if explicitly specified
+  if (isActive !== null) {
+    filter.is_active = isActive;
+  }
+
+  return this.find(filter)
+    .select('line_room_id name statistics created_at updated_at is_active owner_id')
+    .sort({ 'statistics.last_activity_at': -1 });
 };
 
 // Get active groups with recent activity

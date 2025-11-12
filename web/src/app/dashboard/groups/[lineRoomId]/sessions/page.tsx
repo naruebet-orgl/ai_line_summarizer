@@ -24,8 +24,9 @@ interface GroupSession {
 
 export default function GroupSessionsPage() {
   const params = useParams();
-  const groupName = decodeURIComponent(params.groupName as string);
+  const lineRoomId = params.lineRoomId as string;
   const [sessions, setSessions] = useState<GroupSession[]>([]);
+  const [groupName, setGroupName] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,8 +35,10 @@ export default function GroupSessionsPage() {
       setLoading(true);
       setError(null);
 
-      // Fetch all sessions and filter by group name
-      const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{"limit":100}}}`);
+      // Fetch ALL sessions (tRPC parameters broken, so fetch everything with no filters)
+      // We'll filter client-side by line_room_id
+      // IMPORTANT: Must pass limit: 10000 explicitly, otherwise defaults to 20
+      const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{"limit":10000}}}`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch sessions: ${response.status}`);
@@ -45,15 +48,35 @@ export default function GroupSessionsPage() {
       const sessionData = data[0]?.result?.data;
 
       if (sessionData && sessionData.sessions) {
-        // Filter sessions for this specific group
-        const groupSessions = sessionData.sessions.filter((s: any) =>
-          s.room_name === groupName && (s.room_type === 'group' || s.room_id?.type === 'group')
-        );
+        console.log(`Fetched ${sessionData.sessions.length} total sessions`);
+
+        // Filter sessions for this specific group by line_room_id (avoids encoding issues with Thai/EN names)
+        const groupSessions = sessionData.sessions.filter((s: any) => {
+          const roomLineId = s.room_id?.line_room_id;
+          const isMatch = roomLineId === lineRoomId;
+          if (isMatch) {
+            console.log(`Found matching session: ${s.session_id} for line_room_id: ${lineRoomId}`);
+          }
+          return isMatch;
+        });
+
+        console.log(`Filtered to ${groupSessions.length} sessions for line_room_id: ${lineRoomId}`);
 
         // Sort by start time (newest first)
         groupSessions.sort((a: any, b: any) =>
           new Date(b.start_time).getTime() - new Date(a.start_time).getTime()
         );
+
+        // Extract group name from first session
+        if (groupSessions.length > 0) {
+          setGroupName(groupSessions[0].room_name || 'Unknown Group');
+        } else {
+          // Fallback: fetch group info from rooms endpoint
+          const roomResponse = await fetch(`/api/trpc/rooms.getAiGroups?batch=1&input={"0":{"json":{}}}`);
+          const roomData = await roomResponse.json();
+          const room = roomData[0]?.result?.data?.groups?.find((g: any) => g.line_group_id === lineRoomId);
+          setGroupName(room?.group_name || 'Unknown Group');
+        }
 
         setSessions(groupSessions);
       } else {
@@ -70,7 +93,7 @@ export default function GroupSessionsPage() {
 
   useEffect(() => {
     fetchGroupSessions();
-  }, [groupName]);
+  }, [lineRoomId]);
 
   if (loading) {
     return (
