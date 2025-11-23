@@ -294,6 +294,62 @@ router.get('/config', async (req, res) => {
 });
 
 /**
+ * Debug: Test database write operation
+ * POST /api/debug/write-test
+ */
+router.post('/write-test', async (req, res) => {
+  console.log('🔧 Debug: Testing database write operation');
+
+  try {
+    const mongoose = require('mongoose');
+    const { LineEventsRaw } = require('../models');
+
+    // Try to write a test document
+    const testDoc = {
+      _id: `test-write-${Date.now()}`,
+      user_id: 'debug-test-user',
+      event_type: 'debug_write_test',
+      payload: {
+        test: true,
+        timestamp: new Date().toISOString(),
+        purpose: 'MongoDB write test'
+      },
+      received_at: new Date()
+    };
+
+    console.log('📝 Attempting to write test document:', testDoc._id);
+
+    const result = await LineEventsRaw.create(testDoc);
+
+    console.log('✅ Write test successful:', result._id);
+
+    // Clean up - delete the test document
+    await LineEventsRaw.deleteOne({ _id: testDoc._id });
+    console.log('🧹 Test document cleaned up');
+
+    res.status(200).json({
+      success: true,
+      message: 'Database write test PASSED',
+      test_id: testDoc._id,
+      write_successful: true,
+      cleanup_successful: true,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Debug write test FAILED:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database write test FAILED',
+      error: error.message,
+      error_code: error.code,
+      error_name: error.name,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
  * Debug: Fix legacy owner index
  * POST /api/debug/fix-owner-index
  */

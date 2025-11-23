@@ -2,7 +2,28 @@
 
 All notable changes to the LINE Chat Summarizer AI project will be documented in this file.
 
-## [Unreleased] - 2025-11-12
+## [Unreleased] - 2025-11-24
+
+### Investigation - MongoDB Write Failures After Storage Full
+
+#### Root Cause Analysis
+
+**Problem:** Data stopped saving on 2025-11-20 when MongoDB Atlas reached 514MB/512MB (100% full). Even after cleanup, writes are still failing silently.
+
+**Investigation Path:**
+1. LINE webhook verification shows "Success" but no new data since Nov 20
+2. Webhook endpoint responds correctly (200 OK)
+3. Database reads work fine (stats, sessions, rooms all accessible)
+4. Test webhooks return success but don't save data
+5. **Silent failure**: Errors caught but not re-thrown in `handle_message_event`
+
+**Diagnosis:**
+- Added `/api/debug/write-test` endpoint to explicitly test MongoDB write operations
+- Will reveal actual error (disk full, permission, connection issue)
+
+---
+
+## [Previous] - 2025-11-12
 
 ### Fixed - Display All Groups with Search and Sort Features
 
