@@ -294,6 +294,42 @@ router.get('/config', async (req, res) => {
 });
 
 /**
+ * Debug: Clean up raw_events collection to free space
+ * DELETE /api/debug/cleanup-raw-events
+ */
+router.delete('/cleanup-raw-events', async (req, res) => {
+  console.log('🧹 Debug: Cleaning up raw_events collection');
+
+  try {
+    const { LineEventsRaw } = require('../models');
+
+    // Count before deletion
+    const countBefore = await LineEventsRaw.countDocuments();
+    console.log(`📊 Raw events count before cleanup: ${countBefore}`);
+
+    // Delete all raw events
+    const result = await LineEventsRaw.deleteMany({});
+    console.log(`✅ Deleted ${result.deletedCount} raw events`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Raw events collection cleaned up',
+      deleted_count: result.deletedCount,
+      count_before: countBefore,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Cleanup failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
  * Debug: Test database write operation
  * POST /api/debug/write-test
  */

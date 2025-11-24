@@ -1,1 +1,1 @@
-self.__NEXT_FONT_MANIFEST="{\"pages\":{},\"app\":{\"/Users/naruebet.orgl/Workspace/Labs/line_chat_summarizer_ai/web/src/app/layout\":[\"static/media/f196b1e65fee88ed-s.p.woff2\",\"static/media/cc95fdb254242a42-s.p.woff2\"]},\"appUsingSizeAdjust\":true,\"pagesUsingSizeAdjust\":false}"
+self.__NEXT_FONT_MANIFEST="{\"pages\":{},\"app\":{},\"appUsingSizeAdjust\":false,\"pagesUsingSizeAdjust\":false}"

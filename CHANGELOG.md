@@ -19,7 +19,25 @@ All notable changes to the LINE Chat Summarizer AI project will be documented in
 
 **Diagnosis:**
 - Added `/api/debug/write-test` endpoint to explicitly test MongoDB write operations
-- Will reveal actual error (disk full, permission, connection issue)
+- Revealed error: `"you are over your space quota, using 512 MB of 512 MB"`
+
+**Root Cause:**
+- `images.chunks` collection was using **498 MB** (97% of storage)
+- GridFS images from LINE were never cleaned up
+- When DB hit 512MB limit, all writes failed silently
+
+**Solution:**
+1. Dropped `images.chunks` and `images.files` collections in MongoDB Atlas
+2. Freed ~500MB of space
+3. Writes working again immediately
+
+**Files Modified:**
+- `backend/src/routes/debug_routes.js` - Added `/api/debug/write-test` endpoint
+
+**Prevention:**
+- Consider disabling image downloads or implementing automatic cleanup
+- Monitor MongoDB Atlas storage usage
+- Set up alerts before hitting 512MB limit
 
 ---
 

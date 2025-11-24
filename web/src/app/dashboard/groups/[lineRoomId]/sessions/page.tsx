@@ -71,11 +71,18 @@ export default function GroupSessionsPage() {
         if (groupSessions.length > 0) {
           setGroupName(groupSessions[0].room_name || 'Unknown Group');
         } else {
-          // Fallback: fetch group info from rooms endpoint
-          const roomResponse = await fetch(`/api/trpc/rooms.getAiGroups?batch=1&input={"0":{"json":{}}}`);
-          const roomData = await roomResponse.json();
-          const room = roomData[0]?.result?.data?.groups?.find((g: any) => g.line_group_id === lineRoomId);
-          setGroupName(room?.group_name || 'Unknown Group');
+          // Fallback: fetch group info from rooms endpoint when no sessions exist
+          try {
+            const roomResponse = await fetch(`/api/trpc/rooms.getAiGroups?batch=1&input={"0":{"json":{}}}`);
+            const roomData = await roomResponse.json();
+            const rooms = roomData[0]?.result?.data || [];
+            const room = rooms.find((g: any) => g.line_room_id === lineRoomId);
+            setGroupName(room?.name || 'Unknown Group');
+            console.log(`Fallback: Found room name "${room?.name}" for line_room_id: ${lineRoomId}`);
+          } catch (roomErr) {
+            console.error('Failed to fetch room info:', roomErr);
+            setGroupName('Unknown Group');
+          }
         }
 
         setSessions(groupSessions);

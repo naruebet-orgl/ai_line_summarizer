@@ -1,0 +1,20 @@
+{
+  "events": [
+    {
+      "type": "message",
+      "message": {
+        "type": "text",
+        "id": "test-message-123",
+        "text": "Test message from Claude Code"
+      },
+      "timestamp": 1699699200000,
+      "source": {
+        "type": "group",
+        "groupId": "TestGroup123",
+        "userId": "TestUser456"
+      },
+      "replyToken": "test-token-456",
+      "mode": "active"
+    }
+  ]
+}
