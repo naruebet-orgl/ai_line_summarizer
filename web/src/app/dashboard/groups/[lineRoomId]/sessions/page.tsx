@@ -89,14 +89,39 @@ export default function GroupSessionsPage() {
         } else {
           // Fallback: fetch group info from rooms endpoint when no sessions exist
           try {
+            console.log('🔄 Fetching room info from rooms.getAiGroups...');
             const roomResponse = await fetch(`/api/trpc/rooms.getAiGroups?batch=1&input={"0":{"json":{}}}`);
             const roomData = await roomResponse.json();
-            const groupsData = roomData[0]?.result?.data?.groups || [];
+
+            console.log('Room API response:', roomData);
+            console.log('roomData[0]?.result?.data:', roomData[0]?.result?.data);
+
+            const responseData = roomData[0]?.result?.data;
+            if (!responseData) {
+              console.error('❌ No data in response');
+              setGroupName('Unknown Group');
+              return;
+            }
+
+            const groupsData = responseData.groups;
+            if (!Array.isArray(groupsData)) {
+              console.error('❌ groups is not an array:', typeof groupsData, groupsData);
+              setGroupName('Unknown Group');
+              return;
+            }
+
+            console.log(`Found ${groupsData.length} groups, searching for line_group_id: ${lineRoomId}`);
             const room = groupsData.find((g: any) => g.line_group_id === lineRoomId);
-            setGroupName(room?.group_name || 'Unknown Group');
-            console.log(`Fallback: Found room name "${room?.group_name}" for line_room_id: ${lineRoomId}`);
+
+            if (room) {
+              console.log(`✓ Found room:`, room);
+              setGroupName(room.group_name || 'Unknown Group');
+            } else {
+              console.log(`❌ No room found with line_group_id: ${lineRoomId}`);
+              setGroupName('Unknown Group');
+            }
           } catch (roomErr) {
-            console.error('Failed to fetch room info:', roomErr);
+            console.error('❌ Failed to fetch room info:', roomErr);
             setGroupName('Unknown Group');
           }
         }
