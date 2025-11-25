@@ -2,7 +2,93 @@
 
 All notable changes to the LINE Chat Summarizer AI project will be documented in this file.
 
-## [Unreleased] - 2025-11-24
+## [Unreleased] - 2025-11-25
+
+### Fixed - "fetch is not defined" Error in Production Summary Generation
+
+#### Root Cause Analysis
+
+**Problem:** When clicking "Generate Summary" from deployed production environment, users received error:
+```
+Failed to generate summary: Failed to generate summary: 500
+{"error":{"message":"fetch is not defined","code":-32603,
+"data":{"code":"INTERNAL_SERVER_ERROR","httpStatus":500,
+"path":"sessions.generateSummary","zodError":null}}}
+```
+
+**Investigation Path:**
+1. Error occurs in `sessions.generateSummary` tRPC endpoint
+2. Error originates from `gemini_service.js` when calling Google Generative AI
+3. `@google/generative-ai` package uses native `fetch` API internally
+4. `fetch` is only available natively in Node.js 18+
+5. Railway deployment uses **Nixpacks builder** (not Dockerfile)
+6. Nixpacks defaulted to **Node.js 16** based on `package.json` engines: `"node": ">=16.0.0"`
+7. Node.js 16 does not have native `fetch` support
+
+**Root Cause:**
+- `railway.json` configured with `"builder": "NIXPACKS"` instead of Dockerfile
+- Dockerfile specified Node 18, but Railway ignored it
+- package.json allowed Node 16+, so Nixpacks used Node 16
+- Google Generative AI SDK requires `fetch`, which is unavailable in Node 16
+- Production deployment failed silently at runtime when calling Gemini API
+
+**Why It Worked Locally:**
+- Local development uses Node 18+ (verified in Dockerfile)
+- Docker build uses `FROM node:18-alpine`
+- Native `fetch` available in Node 18+
+
+#### Solution
+
+**Updated Backend Deployment Requirements:**
+- Modified `backend/package.json` engines from `"node": ">=16.0.0"` to `"node": ">=18.0.0"`
+- This forces Nixpacks to use Node.js 18+ in Railway deployment
+- Node 18+ includes native `fetch` API support
+- No code changes needed - only version requirement update
+
+#### Files Modified
+- `backend/package.json` - Updated Node.js engine requirement to >=18.0.0
+
+#### Deployment Impact
+- **Railway:** Next deployment will automatically use Node 18+ via Nixpacks
+- **Docker:** Already using Node 18 (no change needed)
+- **Local Dev:** Should use Node 18+ for consistency
+
+#### Testing
+After deploying this fix:
+1. Click "Generate Summary" on any session in production
+2. Verify summary generates successfully
+3. Check backend logs for successful Gemini API calls
+4. Confirm no "fetch is not defined" errors
+
+#### Prevention
+- Always align `package.json` engines with Dockerfile version
+- Test in production-like environment (Railway) before release
+- Monitor for runtime errors that only appear in production
+- Document which Node.js features require specific versions
+
+#### Technical Details
+
+**Node.js Fetch Support:**
+- Node.js 16: No native fetch (requires polyfills like `node-fetch`)
+- Node.js 18+: Native fetch API included
+- `@google/generative-ai@^0.24.1`: Requires native fetch
+
+**Railway Nixpacks Behavior:**
+- Reads `package.json` engines field to determine Node version
+- Uses highest compatible version within specified range
+- Does NOT use Dockerfile when builder is set to "NIXPACKS"
+- Alternative: Set `"builder": "DOCKERFILE"` in railway.json
+
+**Why This Solution:**
+1. ✅ Minimal change (one line in package.json)
+2. ✅ No dependency additions (no polyfills needed)
+3. ✅ Aligns with Dockerfile (Node 18)
+4. ✅ Node 18 is LTS and widely supported
+5. ✅ Native fetch is more performant than polyfills
+
+---
+
+## [Previous] - 2025-11-24
 
 ### Investigation - MongoDB Write Failures After Storage Full
 
