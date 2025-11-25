@@ -49,13 +49,29 @@ export default function GroupSessionsPage() {
 
       if (sessionData && sessionData.sessions) {
         console.log(`Fetched ${sessionData.sessions.length} total sessions`);
+        console.log(`Looking for sessions with line_room_id: "${lineRoomId}"`);
+        console.log(`lineRoomId type: ${typeof lineRoomId}`);
+
+        // Debug: Show first few sessions
+        console.log('Sample sessions:', sessionData.sessions.slice(0, 3).map((s: any) => ({
+          session_id: s.session_id,
+          line_room_id: s.line_room_id,
+          room_name: s.room_name,
+          room_type: s.room_type
+        })));
 
         // Filter sessions for this specific group by line_room_id (avoids encoding issues with Thai/EN names)
         const groupSessions = sessionData.sessions.filter((s: any) => {
           const roomLineId = s.line_room_id;  // line_room_id is at top level in API response
           const isMatch = roomLineId === lineRoomId;
+
+          // Debug: Log all comparisons
+          if (sessionData.sessions.length < 20) {  // Only log if not too many
+            console.log(`Comparing: "${roomLineId}" (${typeof roomLineId}) === "${lineRoomId}" (${typeof lineRoomId}) => ${isMatch}`);
+          }
+
           if (isMatch) {
-            console.log(`Found matching session: ${s.session_id} for line_room_id: ${lineRoomId}`);
+            console.log(`✓ Found matching session: ${s.session_id} for line_room_id: ${lineRoomId}`);
           }
           return isMatch;
         });
