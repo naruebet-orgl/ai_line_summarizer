@@ -12,7 +12,7 @@ interface Session {
   _id: string;
   session_id: string;
   room_name: string;
-  room_type: 'group' | 'user';
+  room_type: 'group' | 'individual';  // Backend uses 'individual', not 'user'
   status: 'active' | 'closed' | 'summarizing';
   start_time: string;
   end_time?: string;
@@ -51,8 +51,9 @@ export default function SessionsPage() {
 
       if (sessionData && sessionData.sessions) {
         // Filter for individual sessions only (non-group)
+        // room_type is at top level in API response: 'individual' or 'group'
         const individualSessions = sessionData.sessions.filter((s: any) =>
-          s.room_type === 'user' || s.room_id?.type === 'user' || (!s.room_type && !s.room_id?.type)
+          s.room_type === 'individual' || !s.room_type  // Include sessions without room_type as fallback
         );
 
         // Filter by status if needed

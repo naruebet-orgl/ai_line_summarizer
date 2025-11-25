@@ -52,7 +52,7 @@ export default function GroupSessionsPage() {
 
         // Filter sessions for this specific group by line_room_id (avoids encoding issues with Thai/EN names)
         const groupSessions = sessionData.sessions.filter((s: any) => {
-          const roomLineId = s.room_id?.line_room_id;
+          const roomLineId = s.line_room_id;  // line_room_id is at top level in API response
           const isMatch = roomLineId === lineRoomId;
           if (isMatch) {
             console.log(`Found matching session: ${s.session_id} for line_room_id: ${lineRoomId}`);
@@ -75,10 +75,10 @@ export default function GroupSessionsPage() {
           try {
             const roomResponse = await fetch(`/api/trpc/rooms.getAiGroups?batch=1&input={"0":{"json":{}}}`);
             const roomData = await roomResponse.json();
-            const rooms = roomData[0]?.result?.data || [];
-            const room = rooms.find((g: any) => g.line_room_id === lineRoomId);
-            setGroupName(room?.name || 'Unknown Group');
-            console.log(`Fallback: Found room name "${room?.name}" for line_room_id: ${lineRoomId}`);
+            const groupsData = roomData[0]?.result?.data?.groups || [];
+            const room = groupsData.find((g: any) => g.line_group_id === lineRoomId);
+            setGroupName(room?.group_name || 'Unknown Group');
+            console.log(`Fallback: Found room name "${room?.group_name}" for line_room_id: ${lineRoomId}`);
           } catch (roomErr) {
             console.error('Failed to fetch room info:', roomErr);
             setGroupName('Unknown Group');

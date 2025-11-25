@@ -4,6 +4,246 @@ All notable changes to the LINE Chat Summarizer AI project will be documented in
 
 ## [Unreleased] - 2025-11-25
 
+### Fixed - Frontend-Backend Field Mapping Mismatches
+
+#### Problem
+Multiple UI pages showing incorrect data or failing to display data due to mismatched field names between frontend and backend API responses.
+
+**Symptoms:**
+1. Groups showing as "active" displayed "Unknown Group" with 0 sessions when clicked
+2. Group sessions page not filtering sessions correctly
+3. Individual sessions page potentially excluding valid sessions
+4. TypeScript interfaces not matching actual API response structure
+
+#### Root Cause Analysis
+
+**Investigation Path:**
+Comprehensive audit of all frontend-backend API field mappings revealed multiple inconsistencies:
+
+1. **Rooms API Response** (`rooms.getAiGroups`):
+   - Backend returns: `line_group_id`, `group_name`
+   - Frontend accessed: `line_room_id`, `name`
+
+2. **Sessions API Response** (`sessions.list` via `get_conversation_summary()`):
+   - Backend returns: `line_room_id` (top-level), `room_type` (top-level)
+   - Frontend accessed: `room_id?.line_room_id` (nested), `room_id?.type` (nested)
+
+3. **Room Type Enum:**
+   - Backend enum: `['individual', 'group']`
+   - Frontend filter: Checked for `'user'` instead of `'individual'`
+   - Frontend TypeScript: `'group' | 'user'` instead of `'group' | 'individual'`
+
+**Root Cause:**
+Inconsistent field naming conventions and incorrect assumptions about API response structure. The frontend was accessing nested fields that don't exist or using wrong field names entirely.
+
+#### Backend API Response Structure
+
+**Sessions API** (`get_conversation_summary()` in `chat_session.js:193-208`):
+```javascript
+{
+  session_id: this._id,              // MongoDB ObjectId
+  chat_session_id: this.session_id,  // Human-friendly CHAT-YYYY-MM-DD-####
+  line_room_id: this.line_room_id,   // ✅ Top-level field
+  room_name: this.room_name,          // ✅ Top-level field
+  room_type: this.room_type,          // ✅ Top-level: 'individual' or 'group'
+  room_id: this.room_id,              // Just ObjectId reference (not populated)
+  ...
+}
+```
+
+**Rooms API** (`rooms.getAiGroups` in `rooms.js:122-134`):
+```javascript
+{
+  groups: groups.map(group => ({
+    room_id: group._id,
+    line_group_id: group.line_room_id,  // ✅ Named line_group_id
+    group_name: group.name,              // ✅ Named group_name
+    ...
+  })),
+  total: groups.length
+}
+```
+
+#### Solution - All Fixes Applied
+
+**Fix #1: Group Sessions Page Fallback** (`web/src/app/dashboard/groups/[lineRoomId]/sessions/page.tsx:78-80`)
+```typescript
+// BEFORE (WRONG):
+const rooms = roomData[0]?.result?.data || [];
+const room = rooms.find((g: any) => g.line_room_id === lineRoomId);
+setGroupName(room?.name || 'Unknown Group');
+
+// AFTER (FIXED):
+const groupsData = roomData[0]?.result?.data?.groups || [];  // ✅ Access .groups array
+const room = groupsData.find((g: any) => g.line_group_id === lineRoomId);  // ✅ Use line_group_id
+setGroupName(room?.group_name || 'Unknown Group');  // ✅ Use group_name
+```
+
+**Fix #2: Group Sessions Filtering** (`web/src/app/dashboard/groups/[lineRoomId]/sessions/page.tsx:55`)
+```typescript
+// BEFORE (WRONG):
+const roomLineId = s.room_id?.line_room_id;  // ❌ Nested access
+
+// AFTER (FIXED):
+const roomLineId = s.line_room_id;  // ✅ Top-level field
+```
+
+**Fix #3: Individual Sessions Filtering** (`web/src/app/dashboard/sessions/page.tsx:55-56`)
+```typescript
+// BEFORE (WRONG):
+s.room_type === 'user' || s.room_id?.type === 'user' || (!s.room_type && !s.room_id?.type)
+
+// AFTER (FIXED):
+s.room_type === 'individual' || !s.room_type  // ✅ Correct enum value, top-level field
+```
+
+**Fix #4: TypeScript Interface** (`web/src/app/dashboard/sessions/page.tsx:15`)
+```typescript
+// BEFORE (WRONG):
+room_type: 'group' | 'user';
+
+// AFTER (FIXED):
+room_type: 'group' | 'individual';  // ✅ Matches backend enum
+```
+
+#### Files Modified
+1. `web/src/app/dashboard/groups/[lineRoomId]/sessions/page.tsx:55` - Fixed session filtering field access
+2. `web/src/app/dashboard/groups/[lineRoomId]/sessions/page.tsx:78-80` - Fixed fallback room lookup
+3. `web/src/app/dashboard/sessions/page.tsx:15` - Fixed TypeScript interface room_type enum
+4. `web/src/app/dashboard/sessions/page.tsx:55-56` - Fixed individual session filter logic
+
+#### Benefits
+✅ Groups without sessions now show correct name instead of "Unknown Group"
+✅ Group sessions page correctly filters and displays sessions
+✅ Individual sessions page uses correct room type enum value
+✅ TypeScript interfaces match actual API response structure
+✅ Consistent field naming across frontend and backend
+✅ Eliminated nested field access where data is at top level
+✅ More robust error handling with proper null checks
+
+#### Testing Checklist
+- [x] Groups page displays all groups correctly
+- [x] Clicking group without sessions shows correct group name (not "Unknown Group")
+- [x] Group sessions page filters sessions by correct LINE room ID
+- [x] Individual sessions page shows only 'individual' type sessions (not groups)
+- [x] TypeScript compilation passes without type errors
+- [x] All API responses properly deserialized in frontend
+
+---
+
+### Investigation - Message Count Mismatch Between Groups List and Session Details
+
+#### Problem
+Groups page shows a message count (e.g., 18 messages) that doesn't match the sum of messages shown in the sessions page.
+
+#### Root Cause Analysis
+
+**Data Flow Investigation:**
+
+1. **Groups Page** (`web/src/app/dashboard/groups/page.tsx:81`):
+   - Displays: `message_count: group.statistics?.total_messages`
+   - Source: Room document `statistics.total_messages` field
+   - Updated by: `room.increment_statistics('total_messages')` on EVERY message received
+   - **Type: Cumulative lifetime total**
+
+2. **Sessions Page** (`web/src/app/dashboard/groups/[lineRoomId]/sessions/page.tsx:137`):
+   - Displays: `totalMessages: sessions.reduce((acc, s) => acc + s.message_count, 0)`
+   - Source: Sum of `message_count` from filtered sessions
+   - **Type: Sum of current sessions only**
+
+**Why Mismatch Occurs:**
+
+The mismatch happens because of different data sources with different scopes:
+
+| Source | Scope | Includes |
+|--------|-------|----------|
+| Room.statistics.total_messages | All-time cumulative | All messages ever received in this room |
+| Sum of session.message_count | Current sessions only | Only messages in existing/active sessions |
+
+**Scenarios Causing Mismatch:**
+
+1. **Deleted/Archived Sessions**: Messages from deleted sessions still counted in room statistics
+2. **Session Filtering**: Frontend filters sessions by `line_room_id`, might miss some sessions
+3. **Orphaned Messages**: Messages received before session management was implemented
+4. **Data Migration**: Legacy messages not properly assigned to sessions
+5. **Silent Failures**: Messages saved to room stats but session save failed
+
+#### Root Cause
+**Different counting methods:**
+- Room statistics = **all-time cumulative** counter (never decreases)
+- Session totals = **sum of current sessions** (can change as sessions are deleted/archived)
+
+This is a **data consistency issue** where room-level aggregates don't match sum of child records.
+
+#### Verification Steps
+
+To verify which scenario applies:
+
+1. **Check total sessions for the group:**
+   ```bash
+   # Count sessions for specific line_room_id
+   db.sessions.countDocuments({ "room_id.line_room_id": "YOUR_LINE_ROOM_ID" })
+   ```
+
+2. **Check if any sessions were deleted:**
+   ```bash
+   # Check if there's a deletion log or audit trail
+   # If no soft-delete mechanism, deleted sessions are permanently gone
+   ```
+
+3. **Sum actual messages in database:**
+   ```bash
+   # Count messages across all sessions for this group
+   db.sessions.aggregate([
+     { $match: { "room_id.line_room_id": "YOUR_LINE_ROOM_ID" } },
+     { $group: { _id: null, total: { $sum: "$message_count" } } }
+   ])
+   ```
+
+4. **Compare with room statistics:**
+   ```bash
+   db.rooms.findOne(
+     { line_room_id: "YOUR_LINE_ROOM_ID" },
+     { "statistics.total_messages": 1 }
+   )
+   ```
+
+#### Proposed Solutions
+
+**Option 1: Real-time Recalculation (Recommended)**
+- Change groups page to calculate message count from sessions dynamically
+- Pros: Always accurate, reflects current state
+- Cons: Slightly slower (needs to aggregate sessions)
+
+**Option 2: Periodic Sync Job**
+- Add background job to sync room statistics with actual session totals
+- Pros: Fast reads, statistics stay accurate over time
+- Cons: Requires scheduler, may have brief inconsistency
+
+**Option 3: Event-Driven Updates**
+- Update room statistics when sessions are deleted/modified
+- Pros: Always consistent, efficient
+- Cons: Complex, requires changes to session lifecycle hooks
+
+**Option 4: Display Both Metrics (Quick Fix)**
+- Show "Total Messages: 18 (All-time)" vs "Session Messages: 12 (Current)"
+- Pros: Transparent, no data changes needed
+- Cons: May confuse users
+
+#### Recommendation
+Implement **Option 1 (Real-time Recalculation)** as it provides the most accurate user experience without complex infrastructure changes.
+
+**Implementation:**
+1. Modify groups page to fetch sessions for each group
+2. Calculate message count by summing session.message_count
+3. Add caching to avoid performance issues
+4. Consider deprecating `room.statistics.total_messages` for display purposes
+
+#### Status
+**Investigation Complete** - Waiting for user decision on solution approach
+
+---
+
 ### Fixed - "fetch is not defined" Error in Production Summary Generation
 
 #### Root Cause Analysis
