@@ -45,8 +45,36 @@ Failed to generate summary: Failed to generate summary: 500
 - Node 18+ includes native `fetch` API support
 - No code changes needed - only version requirement update
 
+#### Additional Issues Found and Fixed
+
+**1. Web Frontend - Missing Node.js Version Requirement** ⚠️
+- `web/package.json` had **NO engines field**
+- `web/Dockerfile` uses Node 18, but Nixpacks could use older version
+- **Solution:** Added `"engines": {"node": ">=18.0.0"}` to web/package.json
+- Prevents same fetch-related issues in frontend dependencies
+
+**2. Environment Configuration - Missing Variables** 📝
+- `.env.example` was missing several production variables:
+  - `BETTER_AUTH_SECRET` - Required by authentication system
+  - `SESSION_SECRET` - Used for session management
+  - `MONGODB_DB_NAME` - Database name configuration
+  - `FRONTEND_URL` / `BACKEND_URL` - Cross-service communication
+  - `CORS_ORIGIN` - CORS configuration
+- **Solution:** Updated `.env.example` to match `railway.json` configuration
+- Ensures new developers have complete environment setup
+
+**3. Security Vulnerabilities** 🔒
+- **Backend:** `js-yaml` prototype pollution (moderate severity)
+- **Web:** `js-yaml` prototype pollution + `glob` CLI injection (high severity)
+- **Solution:** Ran `npm audit fix` on both projects
+- All vulnerabilities resolved, dependencies updated
+
 #### Files Modified
 - `backend/package.json` - Updated Node.js engine requirement to >=18.0.0
+- `web/package.json` - Added Node.js engine requirement >=18.0.0
+- `backend/package-lock.json` - Security patches applied
+- `web/package-lock.json` - Security patches applied
+- `.env.example` - Added missing environment variables
 
 #### Deployment Impact
 - **Railway:** Next deployment will automatically use Node 18+ via Nixpacks
