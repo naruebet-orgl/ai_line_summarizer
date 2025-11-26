@@ -29,13 +29,17 @@ export default function GroupSessionsPage() {
   const [groupName, setGroupName] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalSessions, setTotalSessions] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const sessionsPerPage = 20;
 
   const fetchGroupSessions = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Filter sessions on backend by line_room_id (more efficient than client-side filtering)
+      // Filter sessions on backend by line_room_id with pagination
       // Backend indexes sessions by line_room_id for fast queries
       const response = await fetch(
         `/api/trpc/sessions.list?batch=1&input=${encodeURIComponent(
@@ -43,7 +47,8 @@ export default function GroupSessionsPage() {
             "0": {
               json: {
                 line_room_id: lineRoomId,  // Server-side filter by LINE room ID
-                limit: 10000  // Maximum allowed - show all sessions for this group
+                page: page,
+                limit: sessionsPerPage  // Paginate for better performance
               }
             }
           })
@@ -58,12 +63,19 @@ export default function GroupSessionsPage() {
       const sessionData = data[0]?.result?.data;
 
       if (sessionData && sessionData.sessions) {
-        console.log(`✅ Fetched ${sessionData.sessions.length} sessions for line_room_id: "${lineRoomId}"`);
-        console.log('📊 Sample sessions:', sessionData.sessions.slice(0, 3).map((s: any) => ({
+        const pagination = sessionData.pagination || {};
+
+        console.log(`✅ Fetched ${sessionData.sessions.length} sessions (page ${page} of ${pagination.pages || 1})`);
+        console.log(`📊 Total sessions for this group: ${pagination.total || sessionData.sessions.length}`);
+        console.log('Sample sessions:', sessionData.sessions.slice(0, 3).map((s: any) => ({
           session_id: s.session_id,
           room_name: s.room_name,
           message_count: s.message_count
         })));
+
+        // Update pagination info
+        setTotalSessions(pagination.total || sessionData.sessions.length);
+        setTotalPages(pagination.pages || 1);
 
         // Backend already filtered by line_room_id, no client-side filtering needed
         const groupSessions = sessionData.sessions;
@@ -131,7 +143,7 @@ export default function GroupSessionsPage() {
 
   useEffect(() => {
     fetchGroupSessions();
-  }, [lineRoomId]);
+  }, [lineRoomId, page]);
 
   if (loading) {
     return (
@@ -163,7 +175,7 @@ export default function GroupSessionsPage() {
   }
 
   const stats = {
-    totalSessions: sessions.length,
+    totalSessions: totalSessions,  // Use total from pagination, not just current page
     activeSessions: sessions.filter(s => s.status === 'active').length,
     totalMessages: sessions.reduce((acc, s) => acc + s.message_count, 0),
     sessionsWithSummary: sessions.filter(s => s.has_summary).length
@@ -284,6 +296,33 @@ export default function GroupSessionsPage() {
                   </div>
                 </div>
               ))}
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <div className="text-sm text-gray-600">
+                    Page {page} of {totalPages} ({totalSessions} total sessions)
+                  </div>
+                  <div className="flex space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
