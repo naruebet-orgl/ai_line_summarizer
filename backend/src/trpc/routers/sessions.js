@@ -15,10 +15,11 @@ const sessionsRouter = router({
       limit: z.number().max(10000).default(20),
       status: z.enum(['active', 'closed', 'summarizing']).optional(),
       roomId: z.string().optional(),
+      line_room_id: z.string().optional(),  // Add LINE room ID filter
       room_type: z.enum(['individual', 'group']).optional()
     }))
     .query(async ({ input }) => {
-      const { page, limit, status, roomId, room_type } = input;
+      const { page, limit, status, roomId, line_room_id, room_type } = input;
       const skip = (page - 1) * limit;
 
       console.log('🔍 Sessions.list called with input:', input);
@@ -26,6 +27,7 @@ const sessionsRouter = router({
       let filter = {};
       if (status) filter.status = status;
       if (roomId) filter.room_id = roomId;
+      if (line_room_id) filter.line_room_id = line_room_id;  // Filter by LINE room ID
 
       console.log('🔍 MongoDB filter applied:', filter);
 

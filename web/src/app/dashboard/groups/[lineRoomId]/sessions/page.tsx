@@ -35,22 +35,20 @@ export default function GroupSessionsPage() {
       setLoading(true);
       setError(null);
 
-      // Fetch ALL sessions using POST to avoid tRPC query string parameter bug
-      // GET requests don't parse limit parameter correctly (always defaults to 20)
-      // POST request properly sends limit: 10000 to fetch all 1391 sessions
-      const response = await fetch(`/api/trpc/sessions.list`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          "0": {
-            json: {
-              limit: 10000  // Fetch all sessions
+      // Filter sessions on backend by line_room_id (more efficient than client-side filtering)
+      // Backend indexes sessions by line_room_id for fast queries
+      const response = await fetch(
+        `/api/trpc/sessions.list?batch=1&input=${encodeURIComponent(
+          JSON.stringify({
+            "0": {
+              json: {
+                line_room_id: lineRoomId,  // Server-side filter by LINE room ID
+                limit: 1000  // Should be enough for one room's sessions
+              }
             }
-          }
-        })
-      });
+          })
+        )}`
+      );
 
       if (!response.ok) {
         throw new Error(`Failed to fetch sessions: ${response.status}`);
@@ -60,35 +58,15 @@ export default function GroupSessionsPage() {
       const sessionData = data[0]?.result?.data;
 
       if (sessionData && sessionData.sessions) {
-        console.log(`Fetched ${sessionData.sessions.length} total sessions`);
-        console.log(`Looking for sessions with line_room_id: "${lineRoomId}"`);
-        console.log(`lineRoomId type: ${typeof lineRoomId}`);
-
-        // Debug: Show first few sessions
-        console.log('Sample sessions:', sessionData.sessions.slice(0, 3).map((s: any) => ({
+        console.log(`✅ Fetched ${sessionData.sessions.length} sessions for line_room_id: "${lineRoomId}"`);
+        console.log('📊 Sample sessions:', sessionData.sessions.slice(0, 3).map((s: any) => ({
           session_id: s.session_id,
-          line_room_id: s.line_room_id,
           room_name: s.room_name,
-          room_type: s.room_type
+          message_count: s.message_count
         })));
 
-        // Filter sessions for this specific group by line_room_id (avoids encoding issues with Thai/EN names)
-        const groupSessions = sessionData.sessions.filter((s: any) => {
-          const roomLineId = s.line_room_id;  // line_room_id is at top level in API response
-          const isMatch = roomLineId === lineRoomId;
-
-          // Debug: Log all comparisons
-          if (sessionData.sessions.length < 20) {  // Only log if not too many
-            console.log(`Comparing: "${roomLineId}" (${typeof roomLineId}) === "${lineRoomId}" (${typeof lineRoomId}) => ${isMatch}`);
-          }
-
-          if (isMatch) {
-            console.log(`✓ Found matching session: ${s.session_id} for line_room_id: ${lineRoomId}`);
-          }
-          return isMatch;
-        });
-
-        console.log(`Filtered to ${groupSessions.length} sessions for line_room_id: ${lineRoomId}`);
+        // Backend already filtered by line_room_id, no client-side filtering needed
+        const groupSessions = sessionData.sessions;
 
         // Sort by start time (newest first)
         groupSessions.sort((a: any, b: any) =>
