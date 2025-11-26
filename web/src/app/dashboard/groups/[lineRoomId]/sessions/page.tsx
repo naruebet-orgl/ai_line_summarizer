@@ -43,7 +43,7 @@ export default function GroupSessionsPage() {
             "0": {
               json: {
                 line_room_id: lineRoomId,  // Server-side filter by LINE room ID
-                limit: 1000  // Should be enough for one room's sessions
+                limit: 10000  // Maximum allowed - show all sessions for this group
               }
             }
           })
