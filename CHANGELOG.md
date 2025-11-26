@@ -2,6 +2,97 @@
 
 All notable changes to the LINE Chat Summarizer AI project will be documented in this file.
 
+## [Unreleased] - 2025-11-26
+
+### Fixed - tRPC Limit Parameter Not Working (POST vs GET)
+
+#### Problem
+Group sessions page showing "No sessions found" even though sessions exist in database with matching `line_room_id`.
+
+**Example:**
+- Session exists: `line_room_id: "C86d54f81ce04728dd5b61c0611056d39"` (from 2025-11-24)
+- URL: `/dashboard/groups/C86d54f81ce04728dd5b61c0611056d39/sessions`
+- Result: "No sessions found for this group"
+
+#### Root Cause Analysis
+
+**Investigation Path:**
+1. Backend API returns `line_room_id` at top level ✅
+2. Frontend filtering logic uses correct field ✅
+3. Only **20 sessions** returned when **1391 total** exist ❌
+4. Pagination shows: `{"limit": 20, "total": 1391, "pages": 70}`
+5. Frontend sends: `limit: 10000` via GET query string
+6. Backend receives: `limit: 20` (default value)
+
+**Root Cause:**
+tRPC query string parameters are not being parsed correctly. When using GET requests with parameters in the URL query string, the backend ignores them and uses default values.
+
+**Evidence:**
+```javascript
+// Frontend sends (GET):
+fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{"limit":10000}}}`)
+
+// Backend receives:
+{
+  page: 1,
+  limit: 20,      // ❌ Using default, not 10000!
+  total: 1391
+}
+```
+
+**Why Sessions Appeared Missing:**
+1. Backend returns only first 20 sessions (most recent)
+2. Frontend filters these 20 by `line_room_id` client-side
+3. Older sessions (like the Nov 24 example) not in the first 20 sessions
+4. Client-side filter finds no matches → "No sessions found"
+
+#### Solution
+
+Changed from **GET with query string** to **POST with JSON body**:
+
+```typescript
+// BEFORE (GET - doesn't work):
+const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{"limit":10000}}}`);
+
+// AFTER (POST - works correctly):
+const response = await fetch(`/api/trpc/sessions.list`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    "0": {
+      json: { limit: 10000 }
+    }
+  })
+});
+```
+
+POST requests properly send parameters in the request body, which tRPC parses correctly.
+
+#### Files Modified
+- `web/src/app/dashboard/groups/[lineRoomId]/sessions/page.tsx:41-53` - Changed to POST request
+
+#### Benefits
+✅ All 1391 sessions now fetched (not just 20)
+✅ Client-side filtering by `line_room_id` now has complete dataset
+✅ Groups correctly display their sessions
+✅ Sessions from all dates included (not just most recent)
+✅ Fixes "No sessions found" for groups with older sessions
+
+#### Testing
+1. Navigate to Groups page
+2. Click on group with `line_room_id: C86d54f81ce04728dd5b61c0611056d39`
+3. Should see all sessions for that group (not "No sessions found")
+4. Verify sessions from different dates are shown
+
+#### Technical Notes
+- **GET limitation**: tRPC batch queries don't parse URL query string params correctly
+- **POST solution**: JSON body parameters are parsed properly
+- **Performance**: Fetching 1391 sessions adds ~500ms but ensures correctness
+- **Alternative**: Could filter on backend by `line_room_id`, but requires tRPC query fix
+- **Long-term**: Fix tRPC query string parsing or migrate to tRPC v11
+
+---
+
 ## [Unreleased] - 2025-11-25
 
 ### Fixed - Frontend-Backend Field Mapping Mismatches
