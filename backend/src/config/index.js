@@ -84,6 +84,18 @@ const config = {
   // Google Apps Script Integration
   googleAppsScript: {
     webhookUrl: 'https://script.google.com/macros/s/AKfycbw2KuDcXK8UkUjuxRrmLcoxLrJwNxcYn8onXoK0oBNddPljjmQ-rGp6M9gwWxuPpu8A/exec'
+  },
+
+  // Session Management Configuration (Single Source of Truth)
+  session: {
+    // Maximum messages per session before auto-close and summary generation
+    maxMessagesPerSession: parseInt(process.env.SESSION_MAX_MESSAGES) || 50,
+
+    // Session timeout in hours before auto-close
+    sessionTimeoutHours: parseInt(process.env.SESSION_TIMEOUT_HOURS) || 24,
+
+    // Minimum messages required to generate AI summary
+    minMessagesForSummary: parseInt(process.env.SESSION_MIN_MESSAGES_FOR_SUMMARY) || 1
   }
 };
 

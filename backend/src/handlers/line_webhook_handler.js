@@ -7,11 +7,23 @@
 const lineService = require('../services/line_service');
 const geminiService = require('../services/gemini_service');
 const { Owner, Room, ChatSession, Summary, LineEventsRaw, Message } = require('../models');
+const config = require('../config');
 
 class LineWebhookHandler {
   constructor() {
     this.activeSessionTimeouts = new Map(); // sessionId -> timeout
+
+    // Use centralized configuration (Single Source of Truth)
+    this.maxMessagesPerSession = config.session.maxMessagesPerSession;
+    this.sessionTimeoutHours = config.session.sessionTimeoutHours;
+    this.minMessagesForSummary = config.session.minMessagesForSummary;
+
     console.log('🎯 LineWebhookHandler initialized for chat summarization');
+    console.log(`📋 Session config:`, {
+      maxMessagesPerSession: this.maxMessagesPerSession,
+      sessionTimeoutHours: this.sessionTimeoutHours,
+      minMessagesForSummary: this.minMessagesForSummary
+    });
   }
 
   /**
@@ -265,19 +277,20 @@ class LineWebhookHandler {
 
   /**
    * Check if session should be closed
+   * Uses centralized configuration (Single Source of Truth)
    */
   async should_close_session(session) {
     const messageCount = session.message_logs.length;
     const sessionAge = Date.now() - session.start_time.getTime();
-    const hourLimit = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    const hourLimit = this.sessionTimeoutHours * 60 * 60 * 1000; // Convert hours to milliseconds
 
-    if (messageCount >= 50) {
-      console.log(`📊 Session ${session._id} reached message limit (${messageCount}/50)`);
+    if (messageCount >= this.maxMessagesPerSession) {
+      console.log(`📊 Session ${session._id} reached message limit (${messageCount}/${this.maxMessagesPerSession})`);
       return true;
     }
 
     if (sessionAge >= hourLimit) {
-      console.log(`⏰ Session ${session._id} reached time limit (${Math.round(sessionAge / (60 * 60 * 1000))} hours)`);
+      console.log(`⏰ Session ${session._id} reached time limit (${Math.round(sessionAge / (60 * 60 * 1000))}/${this.sessionTimeoutHours} hours)`);
       return true;
     }
 

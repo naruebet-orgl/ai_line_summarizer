@@ -4,6 +4,240 @@ All notable changes to the LINE Chat Summarizer AI project will be documented in
 
 ## [Unreleased] - 2025-11-26
 
+### CRITICAL - Security Fix: API Key Leaked and Revoked
+
+#### Problem
+Production summary generation failed with error:
+```
+Failed to generate summary: 500 {"error":{"message":"[GoogleGenerativeAI Error]:
+Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent:
+[403 Forbidden] Your API key was reported as leaked. Please use another API key."}}
+```
+
+#### Root Cause Analysis
+
+**Investigation:**
+1. Error indicates Google detected and revoked the Gemini API key
+2. Searched codebase for hardcoded credentials
+3. Found API key `AIzaSyDS5WP9J_4XeRYe1amYXwh5UL6H8xbx1bQ` exposed in:
+   - `backend/railway.json:27` - Committed to Git
+   - `DEPLOYMENT.md:28,56` - Committed to Git
+
+**Root Cause:**
+- Sensitive credentials were hardcoded in committed files instead of environment variables
+- Google's automated leak detection found the key in the repository
+- Key was permanently revoked by Google for security reasons
+
+#### Solution
+
+**Immediate Fix - Remove Hardcoded Secrets:**
+
+1. **backend/railway.json** - Replaced all hardcoded secrets with Railway variable references:
+   ```json
+   // BEFORE (LEAKED):
+   "GEMINI_API_KEY": "AIzaSyDS5WP9J_4XeRYe1amYXwh5UL6H8xbx1bQ"
+
+   // AFTER (SECURE):
+   "GEMINI_API_KEY": "${{GEMINI_API_KEY}}"
+   ```
+
+2. **DEPLOYMENT.md** - Replaced hardcoded values with placeholders:
+   ```
+   // BEFORE (LEAKED):
+   GEMINI_API_KEY=AIzaSyDS5WP9J_4XeRYe1amYXwh5UL6H8xbx1bQ
+
+   // AFTER (SECURE):
+   GEMINI_API_KEY=<your-gemini-api-key>
+   ```
+
+**Credentials That Need Rotation:**
+
+| Credential | Where Exposed | Action Required |
+|------------|---------------|-----------------|
+| GEMINI_API_KEY | railway.json, DEPLOYMENT.md | Generate new key at Google AI Studio |
+| MONGODB_URI (password) | DEPLOYMENT.md | Change MongoDB Atlas password |
+| LINE_CHANNEL_SECRET | railway.json, DEPLOYMENT.md | Regenerate in LINE Console |
+| LINE_CHANNEL_ACCESS_TOKEN | railway.json, DEPLOYMENT.md | Regenerate in LINE Console |
+| JWT_SECRET | railway.json, DEPLOYMENT.md | Generate new random 64-char hex |
+| ENCRYPTION_KEY | railway.json | Generate new random 64-char hex |
+| BETTER_AUTH_SECRET | railway.json, DEPLOYMENT.md | Generate new secure random string |
+| SESSION_SECRET | railway.json, DEPLOYMENT.md | Generate new secure random string |
+
+#### Files Modified
+- `backend/railway.json` - Replaced all hardcoded secrets with Railway variable references
+- `DEPLOYMENT.md` - Replaced all hardcoded secrets with placeholder instructions
+
+#### Prevention
+1. **Never commit secrets** - Use environment variables only
+2. **Use .gitignore** - Ensure .env files are ignored
+3. **Use secret scanning** - Enable GitHub secret scanning
+4. **Railway variables** - Set secrets in Railway dashboard, not railway.json
+5. **Pre-commit hooks** - Add hooks to detect accidental secret commits
+
+#### Recovery Steps
+1. Generate new Gemini API key at https://aistudio.google.com/app/apikey
+2. Update `GEMINI_API_KEY` in Railway dashboard
+3. Rotate ALL exposed credentials listed above
+4. Redeploy backend service
+5. Test summary generation
+
+---
+
+### Fixed - Session Management Configuration Inconsistency (Single Source of Truth)
+
+#### Problem
+Session cutoff logic was inconsistent across the codebase with different message limits:
+- **webhook_handler.js**: Closed sessions at **50 messages**
+- **session_manager.js**: Closed sessions at **100 messages**
+
+This created confusion about when sessions would actually close and made it impossible to configure session behavior globally.
+
+#### Root Cause Analysis
+
+**Investigation:**
+1. Reviewed `line_webhook_handler.js:274` - Found hardcoded limit of 50 messages
+2. Reviewed `session_manager.js:11` - Found hardcoded limit of 100 messages
+3. Both handlers had different timeout values (both 24 hours, but hardcoded separately)
+4. No centralized configuration for session management
+5. No environment variable control over session behavior
+
+**Root Cause:**
+- Configuration was **duplicated** across multiple files
+- **Hardcoded values** instead of centralized config
+- No **single source of truth** for session management settings
+- Violated **DRY (Don't Repeat Yourself)** principle
+
+#### Solution - Centralized Session Configuration
+
+**Created Single Source of Truth** in `backend/src/config/index.js`:
+
+```javascript
+// Session Management Configuration (Single Source of Truth)
+session: {
+  // Maximum messages per session before auto-close and summary generation
+  maxMessagesPerSession: parseInt(process.env.SESSION_MAX_MESSAGES) || 50,
+
+  // Session timeout in hours before auto-close
+  sessionTimeoutHours: parseInt(process.env.SESSION_TIMEOUT_HOURS) || 24,
+
+  // Minimum messages required to generate AI summary
+  minMessagesForSummary: parseInt(process.env.SESSION_MIN_MESSAGES_FOR_SUMMARY) || 1
+}
+```
+
+**Updated Both Handlers to Use Config:**
+
+1. **session_manager.js** (`backend/src/services/session_manager.js:8-22`):
+```javascript
+const config = require('../config');
+
+class SessionManager {
+  constructor() {
+    // Use centralized configuration (Single Source of Truth)
+    this.maxMessagesPerSession = config.session.maxMessagesPerSession;
+    this.sessionTimeoutHours = config.session.sessionTimeoutHours;
+    this.minMessagesForSummary = config.session.minMessagesForSummary;
+
+    console.log(`📋 SessionManager initialized with config:`, {
+      maxMessagesPerSession: this.maxMessagesPerSession,
+      sessionTimeoutHours: this.sessionTimeoutHours,
+      minMessagesForSummary: this.minMessagesForSummary
+    });
+  }
+}
+```
+
+2. **line_webhook_handler.js** (`backend/src/handlers/line_webhook_handler.js:10-27`):
+```javascript
+const config = require('../config');
+
+class LineWebhookHandler {
+  constructor() {
+    // Use centralized configuration (Single Source of Truth)
+    this.maxMessagesPerSession = config.session.maxMessagesPerSession;
+    this.sessionTimeoutHours = config.session.sessionTimeoutHours;
+    this.minMessagesForSummary = config.session.minMessagesForSummary;
+
+    console.log(`📋 Session config:`, {
+      maxMessagesPerSession: this.maxMessagesPerSession,
+      sessionTimeoutHours: this.sessionTimeoutHours,
+      minMessagesForSummary: this.minMessagesForSummary
+    });
+  }
+}
+```
+
+**Added Environment Variables** (`.env.example`):
+```bash
+# Session Management Configuration (Single Source of Truth)
+SESSION_MAX_MESSAGES=50           # Default: 50 messages
+SESSION_TIMEOUT_HOURS=24          # Default: 24 hours
+SESSION_MIN_MESSAGES_FOR_SUMMARY=1  # Default: 1 message
+```
+
+#### Files Modified
+- `backend/src/config/index.js:89-99` - Added centralized session configuration
+- `backend/src/services/session_manager.js:8-22,232` - Import and use config
+- `backend/src/handlers/line_webhook_handler.js:10-27,280-298` - Import and use config
+- `.env.example:38-46` - Added session management environment variables
+
+#### Benefits
+✅ **Single Source of Truth**: All session settings in one place
+✅ **Consistent Behavior**: Both handlers use same limits (50 messages, 24 hours)
+✅ **Environment Configurable**: Change settings without code changes
+✅ **Production Flexible**: Different limits for dev/staging/production
+✅ **DRY Principle**: No duplicated configuration
+✅ **Better Logging**: Shows config values at startup
+✅ **Maintainable**: Update one place, applies everywhere
+✅ **Testable**: Easy to test different configurations
+
+#### Configuration Options
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `SESSION_MAX_MESSAGES` | 50 | Maximum messages before auto-close |
+| `SESSION_TIMEOUT_HOURS` | 24 | Hours before session timeout |
+| `SESSION_MIN_MESSAGES_FOR_SUMMARY` | 1 | Minimum messages to generate AI summary |
+
+#### Testing
+
+After deployment, check logs for configuration initialization:
+```
+📋 SessionManager initialized with config: {
+  maxMessagesPerSession: 50,
+  sessionTimeoutHours: 24,
+  minMessagesForSummary: 1
+}
+
+📋 Session config: {
+  maxMessagesPerSession: 50,
+  sessionTimeoutHours: 24,
+  minMessagesForSummary: 1
+}
+```
+
+#### Use Cases
+
+**Production (More messages per session):**
+```bash
+SESSION_MAX_MESSAGES=100
+SESSION_TIMEOUT_HOURS=48
+```
+
+**Testing (Quick session turnover):**
+```bash
+SESSION_MAX_MESSAGES=5
+SESSION_TIMEOUT_HOURS=1
+```
+
+**Demo (Instant summaries):**
+```bash
+SESSION_MAX_MESSAGES=10
+SESSION_MIN_MESSAGES_FOR_SUMMARY=3
+```
+
+---
+
 ### Added - Pagination for Group Sessions Page
 
 #### Problem

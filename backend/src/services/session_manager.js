@@ -5,11 +5,20 @@
 
 const { ChatSession, Room, Owner, Message } = require('../models');
 const { nanoid } = require('nanoid');
+const config = require('../config');
 
 class SessionManager {
   constructor() {
-    this.maxMessagesPerSession = 100;
-    this.sessionTimeoutHours = 24;
+    // Use centralized configuration (Single Source of Truth)
+    this.maxMessagesPerSession = config.session.maxMessagesPerSession;
+    this.sessionTimeoutHours = config.session.sessionTimeoutHours;
+    this.minMessagesForSummary = config.session.minMessagesForSummary;
+
+    console.log(`📋 SessionManager initialized with config:`, {
+      maxMessagesPerSession: this.maxMessagesPerSession,
+      sessionTimeoutHours: this.sessionTimeoutHours,
+      minMessagesForSummary: this.minMessagesForSummary
+    });
   }
 
   /**
@@ -220,7 +229,7 @@ class SessionManager {
     // Generate summary if requested and session has enough messages
     if (generateSummary) {
       const messageCount = await Message.countDocuments({ session_id: session.session_id });
-      if (messageCount >= 1) {
+      if (messageCount >= this.minMessagesForSummary) {
         console.log(`🤖 Triggering summary generation for session: ${sessionId}`);
 
         try {

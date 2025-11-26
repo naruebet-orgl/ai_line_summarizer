@@ -20,12 +20,12 @@ The application consists of two services:
 ```
 NODE_ENV=production
 PORT=$PORT
-MONGODB_URI=mongodb+srv://ai_db_user:jiMPUDBcadm9jsK9@aisummarizer.ka0psxc.mongodb.net/line_chat_summarizer?retryWrites=true&w=majority&appName=aisummarizer
+MONGODB_URI=<your-mongodb-connection-string>
 MONGODB_DB_NAME=line_chat_summarizer
-LINE_CHANNEL_ID=2008126969
-LINE_CHANNEL_SECRET=18289c53b438f37f0a37d04c8014acb2
-LINE_CHANNEL_ACCESS_TOKEN=V9Hqv/KC+9GPS0lx4vHsN5/+rFbjxjmB0vKQ3BLP+UdzWYTnpcpRZrDxWeh8cBPLX87rbIEUBYzTu/rn1pxqEXWdySS7wjYScR7Wmf1PS5r/v/oj/Q5JkMvUU9yzCk4KYZnMITvIO++QEbCTbPRZ8gdB04t89/1O/w1cDnyilFU=
-GEMINI_API_KEY=AIzaSyDS5WP9J_4XeRYe1amYXwh5UL6H8xbx1bQ
+LINE_CHANNEL_ID=<your-line-channel-id>
+LINE_CHANNEL_SECRET=<your-line-channel-secret>
+LINE_CHANNEL_ACCESS_TOKEN=<your-line-channel-access-token>
+GEMINI_API_KEY=<your-gemini-api-key>
 BACKEND_URL=https://$RAILWAY_PUBLIC_DOMAIN
 FRONTEND_URL=https://your-frontend-domain.railway.app
 CORS_ORIGIN=https://your-frontend-domain.railway.app
@@ -45,15 +45,15 @@ BACKEND_URL=https://your-backend-domain.railway.app
 BETTER_AUTH_URL=https://$RAILWAY_PUBLIC_DOMAIN
 FRONTEND_URL=https://$RAILWAY_PUBLIC_DOMAIN
 NEXTAUTH_URL=https://$RAILWAY_PUBLIC_DOMAIN
-MONGODB_URI=mongodb+srv://ai_db_user:jiMPUDBcadm9jsK9@aisummarizer.ka0psxc.mongodb.net/line_chat_summarizer?retryWrites=true&w=majority&appName=aisummarizer
+MONGODB_URI=<your-mongodb-connection-string>
 MONGODB_DB_NAME=line_chat_summarizer
-LINE_CHANNEL_SECRET=18289c53b438f37f0a37d04c8014acb2
-LINE_CHANNEL_ACCESS_TOKEN=V9Hqv/KC+9GPS0lx4vHsN5/+rFbjxjmB0vKQ3BLP+UdzWYTnpcpRZrDxWeh8cBPLX87rbIEUBYzTu/rn1pxqEXWdySS7wjYScR7Wmf1PS5r/v/oj/Q5JkMvUU9yzCk4KYZnMITvIO++QEbCTbPRZ8gdB04t89/1O/w1cDnyilFU=
-BETTER_AUTH_SECRET=line-chat-summarizer-auth-secret-2024
-NEXTAUTH_SECRET=line-chat-summarizer-nextauth-secret-2024
-JWT_SECRET=line-chat-summarizer-jwt-secret-2024
-SESSION_SECRET=line-chat-summarizer-session-secret-2024
-GEMINI_API_KEY=AIzaSyDS5WP9J_4XeRYe1amYXwh5UL6H8xbx1bQ
+LINE_CHANNEL_SECRET=<your-line-channel-secret>
+LINE_CHANNEL_ACCESS_TOKEN=<your-line-channel-access-token>
+BETTER_AUTH_SECRET=<generate-secure-random-string>
+NEXTAUTH_SECRET=<generate-secure-random-string>
+JWT_SECRET=<generate-secure-random-string>
+SESSION_SECRET=<generate-secure-random-string>
+GEMINI_API_KEY=<your-gemini-api-key>
 ```
 
 ### 3. Update Cross-References
