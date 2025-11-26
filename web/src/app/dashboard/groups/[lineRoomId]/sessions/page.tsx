@@ -35,10 +35,22 @@ export default function GroupSessionsPage() {
       setLoading(true);
       setError(null);
 
-      // Fetch ALL sessions (tRPC parameters broken, so fetch everything with no filters)
-      // We'll filter client-side by line_room_id
-      // IMPORTANT: Must pass limit: 10000 explicitly, otherwise defaults to 20
-      const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{"limit":10000}}}`);
+      // Fetch ALL sessions using POST to avoid tRPC query string parameter bug
+      // GET requests don't parse limit parameter correctly (always defaults to 20)
+      // POST request properly sends limit: 10000 to fetch all 1391 sessions
+      const response = await fetch(`/api/trpc/sessions.list`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          "0": {
+            json: {
+              limit: 10000  // Fetch all sessions
+            }
+          }
+        })
+      });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch sessions: ${response.status}`);
