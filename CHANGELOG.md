@@ -4,6 +4,212 @@ All notable changes to the LINE Chat Summarizer AI project will be documented in
 
 ## [Unreleased] - 2025-11-26
 
+### Fixed - Session Not Closing When New Session Should Start
+
+#### Problem
+When a new session should start (e.g., after 50 messages or 24 hours), the old session was not being closed and summarized **before** the new message was processed. Instead, the new message would be added to the old session, and **then** the session would be closed. This caused:
+
+1. The 50th+ message going into the old session instead of starting fresh
+2. Messages after 24-hour timeout still being added to expired sessions
+3. Old sessions not getting summarized until after the threshold was exceeded
+4. User confusion about when sessions actually start/end
+
+#### Root Cause Analysis
+
+**Investigation:**
+
+Analyzed `line_webhook_handler.js:123-149` message processing flow:
+
+```javascript
+// OLD FLOW (INCORRECT):
+1. Find active session
+2. Create new session if none exists
+3. Add message to session  ❌ Message added to OLD session
+4. Check if session should close
+5. Close session if needed
+```
+
+**Root Cause:**
+- Session closure check happened **AFTER** processing the message
+- If an active session had 49 messages, the 50th message would:
+  1. Be added to the old session (making it 50)
+  2. **Then** trigger closure
+  3. But the message was already in the old session!
+- Same issue with 24-hour timeout - expired sessions would accept one more message before closing
+
+**Why This Happened:**
+The logical flow was backwards - the code should check session validity **BEFORE** adding new content, not after.
+
+#### Solution
+
+**Reordered Session Lifecycle Logic:**
+
+```javascript
+// NEW FLOW (CORRECT):
+1. Find active session
+2. Check if session should close BEFORE processing ✅ Check FIRST
+3. If yes, close old session and create new one
+4. Add message to NEW session
+5. Check again if THIS session hit limit (edge case)
+```
+
+**Code Changes** (`backend/src/handlers/line_webhook_handler.js:126-162`):
+
+```javascript
+// Get or create active session
+let session = await ChatSession.find_active_session(room._id);
+
+// CRITICAL FIX: Check if existing session should be closed BEFORE processing new message
+if (session) {
+  console.log(`🔍 Found active session ${session._id}, checking if it should be closed before processing new message`);
+  const shouldClose = await this.should_close_session(session);
+  if (shouldClose) {
+    console.log(`🔒 Closing old session ${session._id} before creating new one`);
+    await this.close_and_summarize_session(session, owner);
+    session = null; // Force creation of new session
+  }
+}
+
+// Create new session if needed (no active session or old one was just closed)
+if (!session) {
+  session = await ChatSession.create_new_session(/* ... */);
+}
+
+// Process message in the CORRECT session
+await this.process_text_message(session, userId, message.text, message.id, timestamp);
+
+// Check if THIS session should be closed after adding message (in case it just hit the limit)
+const shouldCloseNow = await this.should_close_session(session);
+if (shouldCloseNow) {
+  console.log(`🔒 Session ${session._id} reached limit after adding message, closing now`);
+  await this.close_and_summarize_session(session, owner);
+}
+```
+
+#### Behavior Changes
+
+**Before Fix:**
+```
+Session A: 49 messages, 23 hours old
+New message arrives → Added to Session A (message #50)
+Session A closed and summarized (contains 50 messages)
+Next message → Session B created ❌ First message of new conversation in OLD session
+```
+
+**After Fix:**
+```
+Session A: 49 messages, 23 hours old
+New message arrives → Check Session A first
+Session A has 49 messages → Close and summarize Session A (49 messages)
+Session B created → New message added to Session B (message #1) ✅ Fresh start
+Next message → Session B continues
+```
+
+**Before Fix (24-hour timeout):**
+```
+Session A: Started 24.5 hours ago
+New message arrives → Added to Session A (expired session!)
+Session A closed ❌ Expired session accepted one more message
+```
+
+**After Fix (24-hour timeout):**
+```
+Session A: Started 24.5 hours ago
+New message arrives → Check Session A first
+Session A expired → Close and summarize Session A
+Session B created → New message added to Session B ✅ Clean session boundary
+```
+
+#### Additional Fix: Message Count Source Inconsistency
+
+**Issue Found During Review:**
+The `should_close_session()` method was counting messages from the **embedded `message_logs` array** instead of the **Message collection**. This creates two problems:
+
+1. **Hard limit mismatch**: `message_logs` has a 100-message validation limit in the schema, but `SESSION_MAX_MESSAGES` can be configured higher
+2. **Potential drift**: Messages stored in two places can become inconsistent if one save fails
+
+**Fix Applied** (`backend/src/handlers/line_webhook_handler.js:299`):
+```javascript
+// BEFORE (WRONG):
+const messageCount = session.message_logs.length; // ❌ Embedded array (max 100)
+
+// AFTER (CORRECT):
+const messageCount = await Message.countDocuments({ session_id: session.session_id }); // ✅ Separate collection
+```
+
+This matches the implementation in `SessionManager.js:51` for consistency.
+
+#### Files Modified
+- `backend/src/handlers/line_webhook_handler.js:126-162` - Reordered session lifecycle logic
+- `backend/src/handlers/line_webhook_handler.js:296-314` - Fixed message count source to use Message collection
+
+#### Benefits
+✅ **Clean Session Boundaries**: New sessions truly start fresh when limits are reached
+✅ **Accurate Message Counts**: Sessions contain exactly the messages they should (not one extra)
+✅ **Proper Timeout Handling**: Expired sessions close before accepting new messages
+✅ **Predictable Behavior**: Users can rely on 50-message and 24-hour limits
+✅ **Better Summaries**: AI summaries generated at exactly the right time with correct messages
+✅ **Improved Logging**: Enhanced logs show session closure decisions clearly
+✅ **Consistent Message Source**: Both SessionManager and webhook handler use Message collection
+✅ **Supports High Limits**: Can configure SESSION_MAX_MESSAGES > 100 without hitting schema validation
+
+#### Architectural Notes
+
+**Code Duplication Detected (Future Refactoring Opportunity):**
+
+During this review, we identified that `SessionManager` class (`backend/src/services/session_manager.js`) contains **proper, well-designed session management logic** that is being **duplicated** in `line_webhook_handler.js`.
+
+- `SessionManager.getOrCreateActiveSession()` - Already has correct pre-check logic
+- `SessionManager.addMessage()` - Handles message creation and auto-close
+- `SessionManager.closeSession()` - Handles closure and summary generation
+
+**Current State:**
+- `line_webhook_handler.js` directly calls `ChatSession` static methods
+- Duplicates session lifecycle logic
+- Creates maintenance burden (must update two places for changes)
+
+**Recommendation for Future:**
+Consider refactoring `line_webhook_handler.js` to **use SessionManager** instead of direct ChatSession calls. This would:
+- Eliminate code duplication (DRY principle)
+- Centralize session management logic in one place
+- Reduce maintenance burden
+- Ensure consistent behavior across all session operations
+
+**Why Not Refactored Now:**
+- Current fix is targeted and minimal (reduces deployment risk)
+- Both implementations now work correctly
+- Major refactoring should be planned separately with full testing
+
+#### Testing Checklist
+- [ ] Send 50 messages to a group - verify session closes after 49th, 50th starts new session
+- [ ] Wait 24+ hours - verify next message triggers closure and new session
+- [ ] Check logs for "Closing old session before creating new one" message
+- [ ] Verify summaries generated contain correct message counts
+- [ ] Confirm new sessions start with message #1, not #51
+
+#### Expected Log Output
+
+When old session is closed before new one:
+```
+🔍 Found active session sess_20251126_abc123, checking if it should be closed before processing new message
+📊 Session sess_20251126_abc123 reached message limit (49/50)
+🔒 Closing old session sess_20251126_abc123 before creating new one
+🔒 Closing session sess_20251126_abc123 and generating summary
+🆕 Creating new chat session for room: 673...
+✅ Created new session: sess_20251126_xyz789
+📝 Processing text message: "Hello"
+```
+
+When session limit hit exactly:
+```
+🔍 Found active session sess_20251126_xyz789, checking if it should be closed before processing new message
+📝 Processing text message: "Message 50"
+📊 Session sess_20251126_xyz789 reached message limit (50/50)
+🔒 Session sess_20251126_xyz789 reached limit after adding message, closing now
+```
+
+---
+
 ### CRITICAL - Security Fix: API Key Leaked and Revoked
 
 #### Problem

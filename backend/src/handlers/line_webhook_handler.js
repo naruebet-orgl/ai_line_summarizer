@@ -123,6 +123,18 @@ class LineWebhookHandler {
       // Get or create active session
       let session = await ChatSession.find_active_session(room._id);
 
+      // CRITICAL FIX: Check if existing session should be closed BEFORE processing new message
+      if (session) {
+        console.log(`🔍 Found active session ${session._id}, checking if it should be closed before processing new message`);
+        const shouldClose = await this.should_close_session(session);
+        if (shouldClose) {
+          console.log(`🔒 Closing old session ${session._id} before creating new one`);
+          await this.close_and_summarize_session(session, owner);
+          session = null; // Force creation of new session
+        }
+      }
+
+      // Create new session if needed (no active session or old one was just closed)
       if (!session) {
         session = await ChatSession.create_new_session(
           room._id,
@@ -142,9 +154,10 @@ class LineWebhookHandler {
         await this.process_other_message(session, userId, message, timestamp);
       }
 
-      // Check if session should be closed (50 messages or 24 hours)
-      const shouldClose = await this.should_close_session(session);
-      if (shouldClose) {
+      // Check if THIS session should be closed after adding message (in case it just hit the limit)
+      const shouldCloseNow = await this.should_close_session(session);
+      if (shouldCloseNow) {
+        console.log(`🔒 Session ${session._id} reached limit after adding message, closing now`);
         await this.close_and_summarize_session(session, owner);
       }
 
@@ -278,9 +291,12 @@ class LineWebhookHandler {
   /**
    * Check if session should be closed
    * Uses centralized configuration (Single Source of Truth)
+   * FIXED: Use Message collection count instead of embedded message_logs array
    */
   async should_close_session(session) {
-    const messageCount = session.message_logs.length;
+    // CRITICAL FIX: Count messages from Message collection, not embedded array
+    // Embedded message_logs has 100 message hard limit and may drift out of sync
+    const messageCount = await Message.countDocuments({ session_id: session.session_id });
     const sessionAge = Date.now() - session.start_time.getTime();
     const hourLimit = this.sessionTimeoutHours * 60 * 60 * 1000; // Convert hours to milliseconds
 
