@@ -1,8 +1,12 @@
 # Dependencies
 node_modules/
 */node_modules/
-backend/node_modules/
-web/node_modules/
+apps/*/node_modules/
+packages/*/node_modules/
+
+# pnpm
+.pnpm-store/
+pnpm-debug.log*
 
 # Logs
 logs
@@ -25,10 +29,6 @@ coverage/
 # nyc test coverage
 .nyc_output
 
-# Dependency directories
-node_modules/
-jspm_packages/
-
 # Optional npm cache directory
 .npm
 
@@ -50,6 +50,8 @@ jspm_packages/
 .env.development.local
 .env.test.local
 .env.production.local
+apps/*/.env
+apps/*/.env.local
 
 # Next.js build output
 .next/
@@ -86,17 +88,14 @@ Thumbs.db
 # Build outputs
 build/
 dist/
+*.tsbuildinfo
 
 # Package files
 *.tgz
 *.tar.gz
 
-# Lock files (optional - some prefer to commit these)
-# package-lock.json
-# yarn.lock
-
-# Railway
-.railway/
+# DigitalOcean (keep .do/app.yaml for deployment config)
+# No files to ignore for DO
 
 # Prisma
 prisma/migrations/
@@ -108,3 +107,9 @@ prisma/migrations/
 # Misc
 .cache/
 .parcel-cache/
+.turbo/
+.vercel/
+
+# Keep example files
+!.env.example
+!apps/*/.env.example

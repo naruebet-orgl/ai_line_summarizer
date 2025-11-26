@@ -1,0 +1,11 @@
+{
+  "name": "@line-chat-summarizer/typescript-config",
+  "version": "1.0.0",
+  "description": "Shared TypeScript configurations for LINE Chat Summarizer",
+  "license": "MIT",
+  "files": [
+    "base.json",
+    "nextjs.json",
+    "node.json"
+  ]
+}

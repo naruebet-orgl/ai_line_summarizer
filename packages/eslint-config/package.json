@@ -1,0 +1,15 @@
+{
+  "name": "@line-chat-summarizer/eslint-config",
+  "version": "1.0.0",
+  "description": "Shared ESLint configurations for LINE Chat Summarizer",
+  "license": "MIT",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "next.js",
+    "node.js"
+  ],
+  "devDependencies": {
+    "eslint": "^8.55.0"
+  }
+}

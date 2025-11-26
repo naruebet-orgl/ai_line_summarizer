@@ -1,0 +1,111 @@
+# DigitalOcean App Platform Configuration
+# Monorepo deployment for LINE Chat Summarizer AI
+
+name: line-chat-summarizer
+
+region: sgp  # Singapore (closest to Thailand)
+
+services:
+  # Backend API Service
+  - name: backend
+    github:
+      repo: ${GITHUB_REPO}
+      branch: dev_commercial
+      deploy_on_push: true
+    source_dir: apps/backend
+    dockerfile_path: apps/backend/Dockerfile
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    http_port: 3001
+    routes:
+      - path: /api
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 10
+      period_seconds: 30
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3001"
+      - key: MONGODB_URI
+        type: SECRET
+        value: ${MONGODB_URI}
+      - key: MONGODB_DB_NAME
+        value: ai_summary
+      - key: LINE_CHANNEL_ID
+        type: SECRET
+        value: ${LINE_CHANNEL_ID}
+      - key: LINE_CHANNEL_SECRET
+        type: SECRET
+        value: ${LINE_CHANNEL_SECRET}
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        type: SECRET
+        value: ${LINE_CHANNEL_ACCESS_TOKEN}
+      - key: GEMINI_API_KEY
+        type: SECRET
+        value: ${GEMINI_API_KEY}
+      - key: JWT_SECRET
+        type: SECRET
+        value: ${JWT_SECRET}
+      - key: ENCRYPTION_KEY
+        type: SECRET
+        value: ${ENCRYPTION_KEY}
+      - key: FRONTEND_URL
+        value: ${APP_URL}
+      - key: CORS_ORIGIN
+        value: ${APP_URL}
+      - key: SESSION_MAX_MESSAGES
+        value: "50"
+      - key: SESSION_TIMEOUT_HOURS
+        value: "24"
+      - key: SESSION_MIN_MESSAGES_FOR_SUMMARY
+        value: "1"
+
+  # Web Frontend Service
+  - name: web
+    github:
+      repo: ${GITHUB_REPO}
+      branch: dev_commercial
+      deploy_on_push: true
+    source_dir: apps/web
+    dockerfile_path: apps/web/Dockerfile
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    http_port: 3000
+    routes:
+      - path: /
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 15
+      period_seconds: 30
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: NEXT_PUBLIC_API_URL
+        value: ${APP_URL}/api
+      - key: BACKEND_URL
+        value: ${backend.PRIVATE_URL}:3001
+      - key: MONGODB_URI
+        type: SECRET
+        value: ${MONGODB_URI}
+      - key: MONGODB_DB_NAME
+        value: ai_summary
+      - key: BETTER_AUTH_SECRET
+        type: SECRET
+        value: ${BETTER_AUTH_SECRET}
+      - key: SESSION_SECRET
+        type: SECRET
+        value: ${SESSION_SECRET}
+
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED

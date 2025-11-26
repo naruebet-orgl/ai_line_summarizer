@@ -4,6 +4,974 @@ All notable changes to the LINE Chat Summarizer AI project will be documented in
 
 ## [Unreleased] - 2025-11-26
 
+### Bug Fix - Organization Slug Auto-Generation
+
+#### Issue
+User registration failed with error "Organization slug is required" even though the slug should be auto-generated from the organization name.
+
+#### Root Cause
+The `Organization` model had `slug` field marked as required, and the auto-generation logic was in a `pre('save')` middleware. However, Mongoose runs validation BEFORE pre-save hooks, causing the required validation to fail before the slug could be generated.
+
+#### Solution
+Changed from `pre('save')` to `pre('validate')` hook so the slug is generated before validation runs.
+
+#### File Modified
+- `apps/backend/src/models/organization.js` - Changed pre-save to pre-validate middleware
+
+---
+
+### Implementation - Phase 2: Organization Invite Codes & Join Requests
+
+#### Overview
+Implemented invite code system for organizations. Users can join other organizations by entering an invite code. Organization admins can approve or reject join requests.
+
+#### Flow
+1. **Org Admin** generates an invite code (e.g., `ACME-X7K9`)
+2. **User** enters the code to request joining
+3. **Request** goes to pending status (unless auto-approve is enabled)
+4. **Org Admin** approves or rejects the request
+5. **User** becomes member upon approval
+
+#### Models Created
+
+**InviteCode Model** (`apps/backend/src/models/invite_code.js`):
+```javascript
+// Key fields
+organization_id, code (unique, e.g., "XXXX-XXXX")
+name // Optional label for the code
+default_role: ['org_admin', 'org_member', 'org_viewer']
+status: ['active', 'disabled', 'expired']
+usage: { max_uses, current_uses }
+expires_at // Optional expiration date
+auto_approve // If true, users join instantly without approval
+created_by
+
+// Static methods
+generate_code() // Creates unique 8-char code
+create_invite_code(orgId, userId, options)
+validate_code(code) // Returns { valid, invite_code, organization, error }
+increment_usage(codeId)
+get_by_organization(orgId, activeOnly)
+disable_code(codeId, orgId)
+```
+
+**JoinRequest Model** (`apps/backend/src/models/join_request.js`):
+```javascript
+// Key fields
+user_id, organization_id
+invite_code_id, invite_code // The code used
+requested_role
+status: ['pending', 'approved', 'rejected', 'cancelled']
+message // Optional message from user
+reviewed_by, reviewed_at, rejection_reason
+
+// Static methods
+create_request(userId, orgId, options)
+approve_request(requestId, reviewedBy) // Also creates membership
+reject_request(requestId, reviewedBy, reason)
+cancel_request(requestId, userId) // User cancels their own request
+get_pending_for_organization(orgId)
+get_requests_for_organization(orgId, options)
+get_requests_by_user(userId)
+count_pending(orgId)
+```
+
+#### API Routes Created
+
+**Organization Routes** (`apps/backend/src/routes/organization_routes.js`):
+
+| Method | Endpoint | Description | Access |
+|--------|----------|-------------|--------|
+| GET | `/api/organizations/:orgId` | Get org details | Org member |
+| GET | `/api/organizations/:orgId/members` | List members | Org member |
+| PUT | `/api/organizations/:orgId/members/:memberId/role` | Change role | Org owner |
+| DELETE | `/api/organizations/:orgId/members/:memberId` | Remove member | Org admin/owner |
+| POST | `/api/organizations/:orgId/invite-codes` | Create invite code | Org admin/owner |
+| GET | `/api/organizations/:orgId/invite-codes` | List invite codes | Org admin/owner |
+| DELETE | `/api/organizations/:orgId/invite-codes/:codeId` | Disable code | Org admin/owner |
+| GET | `/api/organizations/:orgId/join-requests` | List join requests | Org admin/owner |
+| GET | `/api/organizations/:orgId/join-requests/pending-count` | Count pending | Org admin/owner |
+| POST | `/api/organizations/:orgId/join-requests/:requestId/approve` | Approve request | Org admin/owner |
+| POST | `/api/organizations/:orgId/join-requests/:requestId/reject` | Reject request | Org admin/owner |
+| POST | `/api/organizations/validate-code` | Validate code | Authenticated |
+| POST | `/api/organizations/join` | Request to join | Authenticated |
+| GET | `/api/organizations/my-requests` | User's requests | Authenticated |
+| DELETE | `/api/organizations/my-requests/:requestId` | Cancel request | Authenticated |
+
+#### Files Created
+- `apps/backend/src/models/invite_code.js`
+- `apps/backend/src/models/join_request.js`
+- `apps/backend/src/routes/organization_routes.js`
+
+#### Files Modified
+- `apps/backend/src/models/index.js` - Added InviteCode, JoinRequest exports
+- `apps/backend/src/app.js` - Registered organization routes
+
+#### Usage Example
+```javascript
+// Org admin creates invite code
+POST /api/organizations/:orgId/invite-codes
+{
+  "name": "Marketing Team Code",
+  "default_role": "org_member",
+  "max_uses": 10,
+  "expires_in_days": 30,
+  "auto_approve": false
+}
+// Response: { code: "ACME-X7K9", ... }
+
+// User validates code
+POST /api/organizations/validate-code
+{ "code": "ACME-X7K9" }
+// Response: { valid: true, organization: { name: "ACME Corp" }, ... }
+
+// User requests to join
+POST /api/organizations/join
+{ "code": "ACME-X7K9", "message": "I'd like to join the team" }
+// Response: { status: "pending", request: { ... } }
+
+// Org admin approves
+POST /api/organizations/:orgId/join-requests/:requestId/approve
+// User is now a member!
+```
+
+#### Frontend Pages Created
+
+**Join Organization Page** (`apps/web/src/app/dashboard/join-org/page.tsx`):
+- Enter and validate invite codes
+- Shows organization info upon validation
+- Submit join request with optional message
+- View status of pending/approved/rejected requests
+- Cancel pending requests
+
+**Invite Codes Management** (`apps/web/src/app/dashboard/settings/invite-codes/page.tsx`):
+- Create new invite codes with options:
+  - Code name (optional label)
+  - Default role (Admin/Member/Viewer)
+  - Max uses (unlimited if empty)
+  - Expiration (days, never if empty)
+  - Auto-approve toggle
+- View all invite codes with status badges (Active/Disabled/Expired/Exhausted)
+- Copy code to clipboard
+- Disable codes
+
+**Join Requests Management** (`apps/web/src/app/dashboard/settings/join-requests/page.tsx`):
+- View pending join requests with user info
+- Filter by status (Pending/Approved/Rejected/All)
+- Approve requests with one click
+- Reject requests with optional reason
+- View request message and details
+
+**Members Management** (`apps/web/src/app/dashboard/settings/members/page.tsx`):
+- View all organization members
+- Member count statistics by role
+- Change member roles (Owner/Admin/Member/Viewer)
+- Remove members from organization
+- Role permissions info display
+
+**Sidebar Updates** (`apps/web/src/app/dashboard/layout.tsx`):
+- Added "Join Org" menu item
+- Added collapsible "Settings" menu with:
+  - Members
+  - Invite Codes
+  - Join Requests
+- Active state highlighting for all new routes
+- Auto-expand settings menu when on settings pages
+
+#### Files Created
+- `apps/web/src/app/dashboard/join-org/page.tsx`
+- `apps/web/src/app/dashboard/settings/invite-codes/page.tsx`
+- `apps/web/src/app/dashboard/settings/join-requests/page.tsx`
+- `apps/web/src/app/dashboard/settings/members/page.tsx`
+
+#### Files Modified
+- `apps/web/src/app/dashboard/layout.tsx` - Added new sidebar menu items
+
+---
+
+### Configuration - Separate Database for dev_commercial Branch
+
+#### Overview
+Changed database name from `line_chat_summarizer` to `ai_summary` for the `dev_commercial` branch to enable isolated testing of the commercial/multi-tenant features without affecting production data.
+
+#### Changes Made
+- Default database name: `ai_summary` (was `line_chat_summarizer`)
+- MongoDB URI updated to point to `ai_summary` database
+- All scripts and configuration files updated
+
+#### Files Modified
+- `apps/backend/src/config/index.js` - Default dbName changed to `ai_summary`
+- `apps/backend/.env` - MONGODB_URI and MONGODB_DB_NAME updated
+- `apps/web/.env.local` - MONGODB_URI and MONGODB_DB_NAME updated
+- `.env.example` - Updated with new database name
+- `DEPLOYMENT.md` - Updated deployment instructions
+- `.do/app.yaml` - DigitalOcean config updated
+- `apps/backend/scripts/db/*.js` - All DB scripts updated
+
+#### Benefits
+- **Data Isolation**: Commercial features tested on separate database
+- **Safe Development**: No risk of corrupting production data
+- **Easy Migration**: Can migrate data when ready for production
+
+---
+
+### Implementation - Phase 1: Organization Model (Multi-Tenancy)
+
+#### Overview
+Implemented the Organization model to support multi-tenant architecture. Each organization can have multiple users (via membership), multiple LINE OA accounts, and isolated data.
+
+#### Models Created
+
+**Organization Model** (`apps/backend/src/models/organization.js`):
+```javascript
+// Key fields
+name, slug, logo_url, primary_color
+status: ['active', 'suspended', 'trial', 'cancelled']
+plan: ['free', 'starter', 'professional', 'enterprise']
+limits: { max_users, max_line_accounts, max_groups, max_messages_per_month, ai_summaries_enabled }
+usage: { current_users, current_line_accounts, current_groups, messages_this_month, summaries_this_month }
+settings: { default_language, timezone, session_auto_close_messages, session_auto_close_hours }
+```
+
+**OrganizationMember Model** (`apps/backend/src/models/organization_member.js`):
+```javascript
+// Key fields
+organization_id, user_id
+role: ['org_owner', 'org_admin', 'org_member', 'org_viewer']
+status: ['pending', 'active', 'suspended', 'removed']
+invited_by, invited_at, joined_at
+last_active_at
+
+// Static methods
+add_member(), remove_member(), change_role()
+suspend_member(), reactivate_member()
+get_organization_members(), get_user_memberships()
+```
+
+#### Models Updated
+
+**User Model** (`apps/backend/src/models/user.js`):
+- Added `platform_role: ['user', 'support', 'super_admin']`
+- Added `current_organization_id` - active org context
+- Added `organizations[]` - denormalized quick lookup array
+- Added methods: `get_organizations()`, `add_organization()`, `remove_organization()`, `switch_organization()`, `get_organization_role()`, `is_super_admin()`
+
+**Owner Model** (`apps/backend/src/models/owner.js`):
+- Added `organization_id` - links LINE OA to organization
+- Added `status: ['active', 'inactive', 'revoked']`
+- Added `connected_by`, `connected_at` - tracking
+- Added `find_by_organization()`, `find_by_channel_and_organization()`
+
+#### Auth Routes Updated
+
+**New Endpoints**:
+- `POST /api/auth/switch-organization` - Switch current org context
+- `GET /api/auth/organizations` - List user's organizations
+
+**Registration Flow**:
+- Creates default organization for new user
+- Adds user as `org_owner` of their organization
+- Returns organization info in response
+
+**Login Flow**:
+- Returns list of user's organizations
+- Auto-selects first org if none set
+- Returns current organization details
+
+#### Migration Script
+
+**File**: `apps/backend/scripts/migrations/001_add_organization_model.js`
+
+Steps performed:
+1. Create default organization
+2. Link existing owners to organization
+3. Link existing rooms to organization
+4. Link existing sessions to organization
+5. Link existing messages to organization
+6. Create org memberships for existing users
+7. Update organization usage counters
+8. Create database indexes
+
+**Rollback**: `apps/backend/scripts/migrations/001_rollback.js`
+
+#### Data Models with Organization Isolation
+
+All core data models now include `organization_id` for multi-tenant data isolation:
+
+**Room Model** (`apps/backend/src/models/room.js`):
+- Added `organization_id` field with index
+- New methods: `get_rooms_by_organization()`, `get_groups_by_organization()`, `get_organization_group_stats()`, `find_or_create_room_with_org()`, `count_by_organization()`
+
+**ChatSession Model** (`apps/backend/src/models/chat_session.js`):
+- Added `organization_id` field with index
+- New methods: `create_session_with_org()`, `get_sessions_by_organization()`, `get_active_sessions_by_organization()`, `count_by_organization()`, `get_organization_session_stats()`
+
+**Message Model** (`apps/backend/src/models/message.js`):
+- Added `organization_id` field with index
+- Updated `create_message()` to include organization_id
+- New methods: `get_messages_by_organization()`, `count_by_organization()`, `get_organization_message_stats()`, `get_organization_room_messages()`
+
+#### Frontend Auth Updates
+
+**Auth Hook** (`apps/web/src/lib/auth.ts`):
+```typescript
+// New types
+type OrganizationRole = 'org_owner' | 'org_admin' | 'org_member' | 'org_viewer';
+type PlatformRole = 'user' | 'support' | 'super_admin';
+
+interface Organization { id, name, slug, logo_url, plan, limits, usage }
+interface OrganizationMembership { id, name, slug, role, is_current }
+
+// Updated state
+interface AuthState {
+  user, organization, organizations[], is_authenticated, loading, error
+}
+
+// New methods
+switch_organization(organization_id): Promise<{ success, error? }>
+get_organization_role(): OrganizationRole | null
+is_org_admin(): boolean
+is_org_owner(): boolean
+```
+
+#### Makefile Updates
+
+Updated for monorepo structure with new commands:
+```bash
+make install          # pnpm install
+make start            # Start both frontend and backend
+make migrate-org      # Run organization migration
+make rollback-org     # Rollback organization migration
+make db-backup        # Backup MongoDB
+make db-stats         # Show database statistics
+make typecheck        # TypeScript type checking
+```
+
+#### Files Created
+- `apps/backend/src/models/organization.js`
+- `apps/backend/src/models/organization_member.js`
+- `apps/backend/scripts/migrations/001_add_organization_model.js`
+- `apps/backend/scripts/migrations/001_rollback.js`
+
+#### Files Modified
+- `apps/backend/src/models/user.js` - Added organization fields and methods
+- `apps/backend/src/models/owner.js` - Added organization_id, status, connected_by
+- `apps/backend/src/models/room.js` - Added organization_id and org-scoped methods
+- `apps/backend/src/models/chat_session.js` - Added organization_id and org-scoped methods
+- `apps/backend/src/models/message.js` - Added organization_id and org-scoped methods
+- `apps/backend/src/models/index.js` - Export new models
+- `apps/backend/src/routes/auth_routes.js` - Organization context in auth flow
+- `apps/web/src/lib/auth.ts` - Organization types and methods
+- `Makefile` - Updated for monorepo with migration commands
+
+#### Usage Example
+
+```javascript
+// Register creates org automatically
+POST /api/auth/register
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "password": "SecurePass123",
+  "organization_name": "My Company"  // Optional
+}
+
+// Login returns org info
+POST /api/auth/login → { user, organization, organizations[] }
+
+// Switch organization
+POST /api/auth/switch-organization
+{ "organization_id": "xxx" }
+
+// Get user's organizations
+GET /api/auth/organizations → { organizations[], current_organization_id }
+```
+
+#### Next Steps
+- Phase 2: RBAC + ABAC permission system
+- Phase 3: LINE Group mapping to organizations
+
+---
+
+### Planning - Commercial Production Implementation Plan
+
+#### Overview
+Created comprehensive implementation plan document (`COMMERCIAL_IMPLEMENTATION_PLAN.md`) for transforming the LINE Chat Summarizer AI into a production-ready commercial SaaS platform.
+
+#### Document Contents
+
+**6 Implementation Phases:**
+
+1. **Phase 1: Organization Model**
+   - Organization schema with plans, limits, usage tracking
+   - Organization-User membership (many-to-many)
+   - Link organizations to LINE OA owners
+   - Database migrations for existing data
+
+2. **Phase 2: RBAC + ABAC**
+   - Platform roles: `super_admin`, `support`
+   - Organization roles: `org_owner`, `org_admin`, `org_member`, `org_viewer`
+   - 40+ granular permissions defined
+   - ABAC policy engine for resource-level access
+   - Permission middleware for tRPC procedures
+
+3. **Phase 3: LINE Group Mapping**
+   - Room-Organization relationship
+   - Group assignment (category, tags, priority)
+   - Auto-mapping in webhook handler
+   - Bulk assignment API
+
+4. **Phase 4: Admin Back-Office**
+   - Super Admin dashboard (`/admin/*`)
+   - Organization Admin panel (`/settings/*`)
+   - Member management UI
+   - Audit logging system
+
+5. **Phase 5: Authentication Enhancements**
+   - Multi-organization login flow
+   - Email invitation system
+   - SSO preparation (Google, Microsoft)
+   - 2FA support (TOTP + backup codes)
+
+6. **Phase 6: Internationalization**
+   - `next-intl` framework setup
+   - Thai (`th.json`) translations
+   - English (`en.json`) translations
+   - Language switcher component
+
+#### Current State Analysis
+
+**What Already Exists:**
+- ✅ User model with role field
+- ✅ JWT authentication (24h access, 7d refresh)
+- ✅ Password hashing (bcrypt, 12 rounds)
+- ✅ Account lockout (5 attempts = 2h lock)
+- ✅ Owner model (LINE OA)
+- ✅ Room model (groups/individual)
+- ✅ Session management with auto-close
+- ✅ Protected tRPC procedures (basic)
+
+**What Needs to Be Built:**
+- 🔨 Organization model & membership
+- 🔨 Comprehensive RBAC enforcement
+- 🔨 ABAC policy engine
+- 🔨 Data isolation per organization
+- 🔨 Admin dashboards
+- 🔨 Invitation system
+- 🔨 i18n framework
+
+#### Architecture Decisions
+
+**Multi-Tenancy Model:**
+```
+Platform (Super Admin)
+└── Organization (Tenant)
+    ├── Owner (LINE OA)
+    ├── Users (org_admin, org_member, viewer)
+    ├── LINE Groups (mapped)
+    ├── Sessions
+    └── Summaries
+```
+
+**Permission Model:**
+- RBAC: Role-to-permission mapping
+- ABAC: Attribute-based policies for fine-grained control
+- Combined: RBAC for endpoint access, ABAC for resource access
+
+#### Files Created
+- `COMMERCIAL_IMPLEMENTATION_PLAN.md` - Complete implementation guide (~1,800 lines)
+
+#### Priority Matrix
+
+| Priority | Features |
+|----------|----------|
+| **P0 (Critical)** | Organization Model, Membership, Permission Middleware, Data Isolation |
+| **P1 (High)** | ABAC Policies, Admin Dashboard, Audit Logging |
+| **P2 (Medium)** | i18n, Invitation System, 2FA |
+
+#### Next Steps
+1. Review document with stakeholders
+2. Create GitHub issues for Phase 1 tasks
+3. Begin Organization model implementation
+
+---
+
+### Feature - Full Authentication System Implementation
+
+#### Overview
+Implemented complete authentication system replacing hardcoded credentials with proper JWT-based authentication flow. This includes user registration, login, logout, password reset, and token refresh functionality.
+
+#### Authentication Flow
+
+**Registration Flow:**
+1. User fills registration form (name, email, password)
+2. Frontend validates password requirements (8+ chars, uppercase, lowercase, number)
+3. Backend validates and hashes password with bcrypt (12 rounds)
+4. Creates user in MongoDB with 'active' status
+5. Generates JWT access token (24h) and refresh token (7d)
+6. Sets httpOnly cookies and returns user profile
+7. Redirects to dashboard
+
+**Login Flow:**
+1. User enters email and password
+2. Backend validates credentials against hashed password
+3. Checks account status (active, locked, suspended)
+4. Increments login attempts on failure (locks after 5 attempts for 2 hours)
+5. Resets login attempts on success
+6. Generates JWT token pair and sets cookies
+7. Returns user profile
+
+**Password Reset Flow:**
+1. User requests reset by email on /forgot-password
+2. Backend generates secure reset token (32 bytes hex)
+3. Token hashed and stored with 1-hour expiry
+4. (Email sending would be implemented separately)
+5. User navigates to /reset-password?token=xxx
+6. Validates token and expiry
+7. Updates password and clears reset token
+8. User can login with new password
+
+**Token Refresh Flow:**
+1. Frontend calls /api/auth/verify on page load
+2. If access token expired, automatically calls /api/auth/refresh
+3. Refresh token used to generate new token pair
+4. Cookies updated silently
+5. User session continues without interruption
+
+#### Backend Implementation
+
+**User Model** (`apps/backend/src/models/user.js`):
+```javascript
+const UserSchema = new Schema({
+  email: { type: String, required: true, unique: true, lowercase: true },
+  password: { type: String, required: true, minlength: 8, select: false },
+  name: { type: String, required: true },
+  role: { type: String, enum: ['user', 'admin', 'super_admin'], default: 'user' },
+  status: { type: String, enum: ['active', 'inactive', 'suspended', 'pending_verification'], default: 'active' },
+  password_reset_token: { type: String, select: false },
+  password_reset_expires: { type: Date, select: false },
+  login_attempts: { type: Number, default: 0 },
+  lock_until: { type: Date },
+  last_login: { type: Date },
+  ...
+});
+
+// Methods
+UserSchema.methods.compare_password(candidate);      // bcrypt compare
+UserSchema.methods.generate_password_reset_token(); // crypto token
+UserSchema.statics.find_by_reset_token(token);      // hashed token lookup
+```
+
+**JWT Service** (`apps/backend/src/services/jwt_service.js`):
+```javascript
+// Custom JWT implementation using Node.js crypto (no external library)
+function generate_token(payload, options);     // Creates JWT with HS256
+function verify_token(token, options);          // Verifies signature and expiry
+function generate_token_pair(user);            // Returns access_token, refresh_token
+function decode_token(token);                  // Decodes without verification
+```
+
+**Auth Routes** (`apps/backend/src/routes/auth_routes.js`):
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/auth/register` | POST | User registration |
+| `/api/auth/login` | POST | User login |
+| `/api/auth/logout` | POST | User logout |
+| `/api/auth/refresh` | POST | Refresh tokens |
+| `/api/auth/forgot-password` | POST | Request password reset |
+| `/api/auth/reset-password` | POST | Reset password with token |
+| `/api/auth/verify` | GET | Verify current token |
+| `/api/auth/profile` | GET | Get user profile |
+| `/api/auth/change-password` | POST | Change password (authenticated) |
+
+#### Frontend Implementation
+
+**API Routes** (Next.js API proxies to backend):
+- `apps/web/src/app/api/auth/login/route.ts` - Sets cookies on successful login
+- `apps/web/src/app/api/auth/register/route.ts` - Sets cookies on successful registration
+- `apps/web/src/app/api/auth/logout/route.ts` - Clears all auth cookies
+- `apps/web/src/app/api/auth/verify/route.ts` - Verifies token, auto-refreshes if expired
+- `apps/web/src/app/api/auth/forgot-password/route.ts` - Forwards reset request
+- `apps/web/src/app/api/auth/reset-password/route.ts` - Forwards reset with token
+- `apps/web/src/app/api/auth/refresh/route.ts` - Refreshes token pair
+
+**Pages**:
+- `apps/web/src/app/login/page.tsx` - Login form with forgot password link
+- `apps/web/src/app/register/page.tsx` - Registration with password validation
+- `apps/web/src/app/forgot-password/page.tsx` - Email input for reset request
+- `apps/web/src/app/reset-password/page.tsx` - Password reset form with token
+
+**Auth Hook** (`apps/web/src/lib/auth.ts`):
+```typescript
+interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: 'user' | 'admin' | 'super_admin';
+  status: 'active' | 'inactive' | 'suspended' | 'pending_verification';
+}
+
+function useAuth(): {
+  user: User | null;
+  is_authenticated: boolean;
+  loading: boolean;
+  error: string | null;
+  login: (email, password) => Promise<{ success, error? }>;
+  logout: () => Promise<void>;
+  register: (name, email, password) => Promise<{ success, error? }>;
+  check_auth_status: () => Promise<void>;
+  require_auth: () => boolean;
+  clear_error: () => void;
+}
+```
+
+#### Security Features
+
+| Feature | Implementation |
+|---------|---------------|
+| Password Hashing | bcrypt with 12 salt rounds |
+| JWT Signing | HS256 with secret key |
+| Token Storage | httpOnly cookies (not accessible via JS) |
+| Token Expiry | Access: 24h, Refresh: 7d, Reset: 1h |
+| Account Lockout | 5 failed attempts = 2 hour lockout |
+| CSRF Protection | sameSite: 'lax' cookie attribute |
+| Secure Transport | secure: true in production |
+| Password Rules | 8+ chars, uppercase, lowercase, number |
+| Reset Token | 32 bytes crypto random, hashed in DB |
+
+#### Files Created
+- `apps/backend/src/models/user.js` - User mongoose model
+- `apps/backend/src/services/jwt_service.js` - JWT token handling
+- `apps/backend/src/routes/auth_routes.js` - Authentication API endpoints
+- `apps/web/src/app/api/auth/login/route.ts` - Login proxy
+- `apps/web/src/app/api/auth/register/route.ts` - Register proxy
+- `apps/web/src/app/api/auth/logout/route.ts` - Logout handler
+- `apps/web/src/app/api/auth/verify/route.ts` - Token verification
+- `apps/web/src/app/api/auth/forgot-password/route.ts` - Forgot password proxy
+- `apps/web/src/app/api/auth/reset-password/route.ts` - Reset password proxy
+- `apps/web/src/app/api/auth/refresh/route.ts` - Token refresh proxy
+- `apps/web/src/app/register/page.tsx` - Registration page
+- `apps/web/src/app/forgot-password/page.tsx` - Forgot password page
+- `apps/web/src/app/reset-password/page.tsx` - Reset password page
+
+#### Files Modified
+- `apps/backend/src/app.js` - Added auth routes, cookie-parser middleware
+- `apps/backend/package.json` - Added bcryptjs, cookie-parser dependencies
+- `apps/web/src/app/login/page.tsx` - Updated with email field, links
+- `apps/web/src/lib/auth.ts` - Complete rewrite with user state, types
+- `apps/web/src/app/dashboard/layout.tsx` - Updated to use new auth hook interface
+
+#### Environment Variables
+```bash
+# JWT Configuration
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+
+# Token Expiry (optional - has defaults)
+JWT_ACCESS_TOKEN_EXPIRY=24h
+JWT_REFRESH_TOKEN_EXPIRY=7d
+```
+
+#### Benefits
+✅ **No Hardcoded Credentials**: All auth dynamic via database
+✅ **Proper Password Security**: bcrypt hashing with high salt rounds
+✅ **JWT Best Practices**: Short-lived access tokens, long-lived refresh tokens
+✅ **Account Protection**: Lockout after failed attempts
+✅ **Password Recovery**: Secure reset token flow
+✅ **Type Safety**: Full TypeScript interfaces for auth state
+✅ **Session Management**: Automatic token refresh
+✅ **Clean UI**: Consistent design across all auth pages
+
+#### Migration Notes
+- First user to register becomes available in the system
+- No admin seeding required - users self-register
+- Existing hardcoded auth (aiadmin/aiadmin) no longer works
+- All users must register with valid email
+
+---
+
+### Cleanup - Remove Dead Code and Organize Scripts
+
+#### Overview
+Cleaned up temporary files, one-time scripts, and organized remaining maintenance scripts into proper folder structure.
+
+#### Files Deleted (One-time/Temp)
+- `final-test.sh` - Railway-specific debug script
+- `test-webhook.sh` - Railway-specific debug script
+- `verify-new-owner.sh` - Railway-specific verification script
+- `test-message.json` - Test data file
+- `mongodb-cleanup-options.md` - Temporary documentation
+- `CLUADE.md` - Duplicate cursor rules file (typo in name)
+
+#### Files Reorganized
+Moved database maintenance scripts to proper folder structure:
+
+```
+apps/backend/scripts/
+├── README.md           # Documentation for all scripts
+└── db/                 # Database maintenance scripts
+    ├── check-duplicates.js          # Analyze DB for duplicates
+    ├── cleanup-database.js          # Remove old data
+    ├── cleanup-messages-aggressive.js  # Aggressive cleanup
+    └── fix-duplicates.js            # Fix duplicate sessions
+```
+
+#### New npm Scripts (apps/backend)
+```bash
+pnpm run db:check           # Check for duplicate data
+pnpm run db:cleanup         # Cleanup old data (dry-run)
+pnpm run db:cleanup:execute # Cleanup old data (execute)
+pnpm run db:fix             # Fix duplicates (dry-run)
+pnpm run db:fix:execute     # Fix duplicates (execute)
+```
+
+#### Script Path Updates
+- Updated `require()` paths in all scripts for new location
+- Scripts now load `.env` from `../../.env` relative to their location
+
+#### Benefits
+✅ **Cleaner Root**: No more one-time scripts cluttering root directory
+✅ **Organized**: DB scripts in dedicated `scripts/db/` folder
+✅ **Documented**: README explains each script's purpose and usage
+✅ **Easy Access**: npm scripts for common maintenance tasks
+✅ **Safe Defaults**: All db scripts default to `--dry-run` mode
+
+---
+
+### Infrastructure - DigitalOcean App Platform Deployment
+
+#### Overview
+Migrated deployment infrastructure from Railway to DigitalOcean App Platform for the `dev_commercial` branch.
+
+#### Changes Made
+
+**1. Removed Railway Configuration:**
+- Deleted `railway.json`, `railway.toml` from both apps
+- Deleted `.railwayignore` files
+- Deleted `nixpacks.toml` files
+- Removed `railway-setup-guide.md`, `railway-mongodb-setup.md`
+
+**2. Added DigitalOcean Configuration:**
+- Created `.do/app.yaml` - App Platform spec for multi-service deployment
+- Updated `DEPLOYMENT.md` - Complete DigitalOcean deployment guide
+
+**3. Updated Dockerfiles for pnpm:**
+- `apps/backend/Dockerfile` - Uses pnpm, optimized for DO
+- `apps/web/Dockerfile` - Uses pnpm, multi-stage build for Next.js
+
+#### DigitalOcean App Spec (`.do/app.yaml`)
+```yaml
+name: line-chat-summarizer
+region: sgp  # Singapore
+
+services:
+  - name: backend
+    source_dir: apps/backend
+    routes:
+      - path: /api
+
+  - name: web
+    source_dir: apps/web
+    routes:
+      - path: /
+```
+
+#### Deployment Commands
+```bash
+# Using doctl CLI
+doctl apps create --spec .do/app.yaml
+
+# Or via DigitalOcean Console
+# 1. Apps → Create App
+# 2. Select GitHub repo
+# 3. Auto-detects .do/app.yaml
+```
+
+#### Files Removed
+- `apps/backend/railway.json`
+- `apps/backend/.railwayignore`
+- `apps/backend/nixpacks.toml`
+- `apps/web/railway.json`
+- `apps/web/railway.toml`
+- `apps/web/.railwayignore`
+- `apps/web/nixpacks.toml`
+- `railway-setup-guide.md`
+- `railway-mongodb-setup.md`
+
+#### Files Created/Modified
+- `.do/app.yaml` - DigitalOcean App Platform configuration
+- `DEPLOYMENT.md` - Complete DigitalOcean deployment guide
+- `apps/backend/Dockerfile` - Updated for pnpm
+- `apps/web/Dockerfile` - Updated for pnpm
+- `.gitignore` - Removed Railway patterns
+
+#### Benefits
+✅ **Cost**: Predictable pricing (~$12/mo minimum)
+✅ **Region**: Singapore datacenter (low latency for Thailand)
+✅ **Simplicity**: Single app spec for both services
+✅ **Monitoring**: Built-in metrics and logging
+✅ **Scaling**: Easy horizontal/vertical scaling
+
+---
+
+### Refactor - Monorepo Structure Migration
+
+#### Overview
+Reorganized the entire codebase into a modern monorepo structure using **pnpm workspaces**. This enables better code sharing, consistent tooling, and improved developer experience.
+
+#### Before (Flat Structure)
+```
+/
+├── backend/          # Express API
+├── web/              # Next.js frontend
+├── docs/
+├── node_modules/
+├── package.json
+└── package-lock.json
+```
+
+#### After (Monorepo Structure)
+```
+/
+├── apps/
+│   ├── backend/      # @line-chat-summarizer/backend
+│   └── web/          # @line-chat-summarizer/web
+├── packages/
+│   ├── shared/       # @line-chat-summarizer/shared (types, constants)
+│   ├── eslint-config/    # @line-chat-summarizer/eslint-config
+│   └── typescript-config/ # @line-chat-summarizer/typescript-config
+├── tooling/          # Build scripts and dev tools
+├── docs/
+├── pnpm-workspace.yaml
+├── pnpm-lock.yaml
+└── package.json
+```
+
+#### Changes Made
+
+**1. Directory Structure:**
+- Created `apps/` directory for deployable applications
+- Moved `backend/` → `apps/backend/`
+- Moved `web/` → `apps/web/`
+- Created `packages/` directory for shared code
+- Created `tooling/` directory for build tools
+
+**2. Package Manager:**
+- Switched from npm to **pnpm** for workspace support
+- Created `pnpm-workspace.yaml` to define workspace packages
+- Created `.npmrc` with pnpm configuration
+
+**3. Shared Packages:**
+
+- `@line-chat-summarizer/shared` - Shared types and constants:
+  - `RoomType`, `SessionStatus`, `MessageLog` types
+  - `SESSION_DEFAULTS`, `ROOM_TYPES`, `SESSION_STATUS` constants
+  - `PaginationParams`, `ApiResponse` interfaces
+
+- `@line-chat-summarizer/typescript-config` - Shared TypeScript configs:
+  - `base.json` - Base TypeScript configuration
+  - `node.json` - Node.js specific config
+  - `nextjs.json` - Next.js specific config
+
+- `@line-chat-summarizer/eslint-config` - Shared ESLint configs:
+  - `index.js` - Base ESLint rules
+  - `node.js` - Node.js specific rules
+  - `next.js` - Next.js specific rules
+
+**4. Package Naming:**
+- Backend: `line-chat-summarizer-backend` → `@line-chat-summarizer/backend`
+- Web: `line-chat-summarizer-frontend` → `@line-chat-summarizer/web`
+- All packages use `@line-chat-summarizer/` scope
+
+**5. Scripts (Root package.json):**
+```json
+{
+  "dev": "pnpm run --parallel dev",
+  "dev:web": "pnpm --filter @line-chat-summarizer/web dev",
+  "dev:backend": "pnpm --filter @line-chat-summarizer/backend dev",
+  "build": "pnpm run -r build",
+  "build:web": "pnpm --filter @line-chat-summarizer/web build",
+  "build:backend": "pnpm --filter @line-chat-summarizer/backend build",
+  "start": "pnpm run --parallel start",
+  "lint": "pnpm run -r lint",
+  "typecheck": "pnpm run -r typecheck",
+  "clean": "pnpm run -r clean && rm -rf node_modules",
+  "clean:all": "find . -name 'node_modules' -type d -prune -exec rm -rf {} +"
+}
+```
+
+#### Files Created
+- `pnpm-workspace.yaml` - Workspace configuration
+- `.npmrc` - pnpm settings
+- `packages/shared/package.json` - Shared package manifest
+- `packages/shared/src/types/index.ts` - Shared TypeScript types
+- `packages/shared/src/constants/index.ts` - Shared constants
+- `packages/shared/src/index.ts` - Package entry point
+- `packages/shared/tsconfig.json` - TypeScript config
+- `packages/typescript-config/package.json` - Config package manifest
+- `packages/typescript-config/base.json` - Base TS config
+- `packages/typescript-config/node.json` - Node.js TS config
+- `packages/typescript-config/nextjs.json` - Next.js TS config
+- `packages/eslint-config/package.json` - ESLint package manifest
+- `packages/eslint-config/index.js` - Base ESLint config
+- `packages/eslint-config/node.js` - Node.js ESLint config
+- `packages/eslint-config/next.js` - Next.js ESLint config
+- `tooling/.gitkeep` - Tooling directory placeholder
+
+#### Files Modified
+- `package.json` - Updated for pnpm workspaces
+- `apps/backend/package.json` - Renamed, added workspace deps
+- `apps/web/package.json` - Renamed, added workspace deps
+- `.gitignore` - Updated for pnpm and monorepo paths
+
+#### Files Moved (Git History Preserved)
+- `backend/` → `apps/backend/`
+- `web/` → `apps/web/`
+
+#### Benefits
+✅ **Shared Code**: Types, constants, and configs reusable across apps
+✅ **Consistent Tooling**: Same ESLint/TypeScript config everywhere
+✅ **Better DX**: Single `pnpm install` installs all dependencies
+✅ **Efficient**: pnpm's hard links save disk space
+✅ **Parallel Builds**: Run tasks across packages in parallel
+✅ **Scalable**: Easy to add new apps or packages
+✅ **Git History**: Preserved via `git mv`
+
+#### Usage
+
+```bash
+# Install all dependencies
+pnpm install
+
+# Run all apps in development
+pnpm dev
+
+# Run specific app
+pnpm dev:web
+pnpm dev:backend
+
+# Build all apps
+pnpm build
+
+# Run linting across all packages
+pnpm lint
+
+# Clean all node_modules
+pnpm clean:all
+```
+
+#### Migration Notes for Deployment
+
+**Railway/Vercel:**
+- Update build commands to use pnpm
+- Set root directory to `apps/backend` or `apps/web`
+- Or use filter: `pnpm --filter @line-chat-summarizer/web build`
+
+**Docker:**
+- Update Dockerfile paths from `backend/` to `apps/backend/`
+- Update Dockerfile paths from `web/` to `apps/web/`
+
+---
+
 ### Fixed - Session Not Closing When New Session Should Start
 
 #### Problem

@@ -1,0 +1,38 @@
+{
+  "name": "@line-chat-summarizer/shared",
+  "version": "1.0.0",
+  "description": "Shared types, utilities, and constants for LINE Chat Summarizer",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "require": "./src/index.js",
+      "types": "./src/index.d.ts"
+    },
+    "./types": {
+      "import": "./src/types/index.js",
+      "require": "./src/types/index.js",
+      "types": "./src/types/index.d.ts"
+    },
+    "./constants": {
+      "import": "./src/constants/index.js",
+      "require": "./src/constants/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "shared",
+    "types",
+    "utilities"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.2"
+  }
+}
