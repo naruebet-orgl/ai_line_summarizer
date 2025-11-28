@@ -19,7 +19,6 @@ interface ValidationResult {
   valid: boolean;
   organization?: OrganizationInfo;
   default_role?: string;
-  auto_approve?: boolean;
   has_pending_request?: boolean;
   error?: string;
 }
@@ -93,7 +92,6 @@ export default function JoinOrganizationPage() {
           valid: true,
           organization: data.organization,
           default_role: data.default_role,
-          auto_approve: data.auto_approve,
           has_pending_request: data.has_pending_request
         });
       } else {
@@ -260,12 +258,10 @@ export default function JoinOrganizationPage() {
                   <p className="text-sm text-green-700">
                     You will join as: <Badge variant="outline" className="ml-1">{get_role_display(validation_result.default_role || 'org_member')}</Badge>
                   </p>
-                  {validation_result.auto_approve && (
-                    <p className="text-sm text-green-600 mt-1">
-                      <CheckCircle className="w-3 h-3 inline mr-1" />
-                      Auto-approve enabled - you'll join instantly
-                    </p>
-                  )}
+                  <p className="text-sm text-green-600 mt-1">
+                    <Clock className="w-3 h-3 inline mr-1" />
+                    Owner approval required after you submit
+                  </p>
                   {validation_result.has_pending_request && (
                     <p className="text-sm text-yellow-600 mt-1">
                       <Clock className="w-3 h-3 inline mr-1" />
@@ -297,8 +293,6 @@ export default function JoinOrganizationPage() {
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                         Submitting...
                       </>
-                    ) : validation_result.auto_approve ? (
-                      'Join Organization'
                     ) : (
                       'Submit Join Request'
                     )}

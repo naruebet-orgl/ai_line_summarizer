@@ -40,7 +40,9 @@ export default function SessionsPage() {
       setError(null);
 
       // Fetch all sessions from backend and filter for individual sessions
-      const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{"limit":50}}}`);
+      const response = await fetch(`/api/trpc/sessions.list?batch=1&input={"0":{"json":{"limit":50}}}`, {
+        credentials: 'include'
+      });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch sessions: ${response.status}`);

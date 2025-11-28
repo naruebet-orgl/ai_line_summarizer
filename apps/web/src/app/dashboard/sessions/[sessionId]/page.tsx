@@ -60,7 +60,9 @@ export default function SessionDetailPage() {
       setError(null)
 
       // Fetch actual session data from backend
-      const response = await fetch(`/api/trpc/sessions.get?input=${encodeURIComponent(JSON.stringify({"sessionId":sessionId}))}`)
+      const response = await fetch(`/api/trpc/sessions.get?input=${encodeURIComponent(JSON.stringify({"sessionId":sessionId}))}`, {
+        credentials: 'include'
+      })
 
       if (!response.ok) {
         throw new Error(`Failed to fetch session: ${response.status}`)
@@ -95,6 +97,7 @@ export default function SessionDetailPage() {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({"sessionId": sessionId})
       })
 

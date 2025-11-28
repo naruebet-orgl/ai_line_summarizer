@@ -8,7 +8,99 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Infinity, Eye, EyeOff } from 'lucide-react';
+import { Infinity, Eye, EyeOff, AlertCircle, UserX, Lock, ServerCrash, WifiOff, Database } from 'lucide-react';
+
+/**
+ * Error state interface for login errors
+ * @property message - Human readable error message
+ * @property code - Error code from backend
+ * @property icon - Icon component to display
+ * @property variant - Alert variant (destructive, warning, etc.)
+ */
+interface LoginError {
+  message: string;
+  code: string;
+  icon: React.ReactNode;
+  variant: 'destructive' | 'warning';
+}
+
+/**
+ * Get error display configuration based on error code
+ * @param error_code - Error code from backend
+ * @param error_message - Error message from backend
+ * @param lock_minutes - Minutes until account unlock (for ACCOUNT_LOCKED)
+ * @returns LoginError configuration object
+ */
+function get_error_config(error_code: string, error_message: string, lock_minutes?: number): LoginError {
+  switch (error_code) {
+    case 'USER_NOT_FOUND':
+      return {
+        message: 'No account found with this email. Please check your email or sign up.',
+        code: error_code,
+        icon: <UserX className="h-4 w-4" />,
+        variant: 'destructive'
+      };
+    case 'INVALID_PASSWORD':
+      return {
+        message: 'Incorrect password. Please try again or reset your password.',
+        code: error_code,
+        icon: <Lock className="h-4 w-4" />,
+        variant: 'destructive'
+      };
+    case 'ACCOUNT_LOCKED':
+      return {
+        message: lock_minutes
+          ? `Too many failed attempts. Account locked for ${lock_minutes} minute${lock_minutes > 1 ? 's' : ''}.`
+          : 'Account temporarily locked. Please try again later.',
+        code: error_code,
+        icon: <Lock className="h-4 w-4" />,
+        variant: 'warning'
+      };
+    case 'ACCOUNT_INACTIVE':
+      return {
+        message: 'Your account is not active. Please contact support for assistance.',
+        code: error_code,
+        icon: <UserX className="h-4 w-4" />,
+        variant: 'warning'
+      };
+    case 'DATABASE_ERROR':
+    case 'DATABASE_QUOTA_EXCEEDED':
+      return {
+        message: 'Service temporarily unavailable. Please try again in a moment.',
+        code: error_code,
+        icon: <Database className="h-4 w-4" />,
+        variant: 'warning'
+      };
+    case 'CONNECTION_ERROR':
+      return {
+        message: 'Unable to connect to server. Please check your internet connection.',
+        code: error_code,
+        icon: <WifiOff className="h-4 w-4" />,
+        variant: 'destructive'
+      };
+    case 'SERVER_ERROR':
+      return {
+        message: 'An unexpected error occurred. Please try again.',
+        code: error_code,
+        icon: <ServerCrash className="h-4 w-4" />,
+        variant: 'destructive'
+      };
+    case 'MISSING_CREDENTIALS':
+      return {
+        message: 'Please enter both email and password.',
+        code: error_code,
+        icon: <AlertCircle className="h-4 w-4" />,
+        variant: 'destructive'
+      };
+    default:
+      return {
+        message: error_message || 'Login failed. Please try again.',
+        code: error_code || 'UNKNOWN',
+        icon: <AlertCircle className="h-4 w-4" />,
+        variant: 'destructive'
+      };
+  }
+}
 
 /**
  * Login Page Component
@@ -19,7 +111,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<LoginError | null>(null);
   const router = useRouter();
 
   /**
@@ -29,7 +121,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setError(null);
 
     console.log('🔐 Attempting login for:', email);
 
@@ -49,12 +141,12 @@ export default function LoginPage() {
         console.log('✅ Login successful');
         router.push('/dashboard');
       } else {
-        console.log('❌ Login failed:', data.error);
-        setError(data.error || 'Login failed. Please check your credentials.');
+        console.log('❌ Login failed:', data.error_code, data.error);
+        setError(get_error_config(data.error_code, data.error, data.lock_minutes));
       }
-    } catch (error) {
-      console.error('❌ Login error:', error);
-      setError('Network error. Please check your connection and try again.');
+    } catch (err) {
+      console.error('❌ Login error:', err);
+      setError(get_error_config('CONNECTION_ERROR', 'Network error'));
     } finally {
       setLoading(false);
     }
@@ -149,10 +241,21 @@ export default function LoginPage() {
                 </div>
 
                 {error && (
-                  <Alert variant="destructive" className="border-red-300">
-                    <AlertDescription className="text-sm">
-                      {error}
-                    </AlertDescription>
+                  <Alert
+                    variant={error.variant === 'warning' ? 'default' : 'destructive'}
+                    className={error.variant === 'warning'
+                      ? 'border-amber-300 bg-amber-50 text-amber-800'
+                      : 'border-red-300 bg-red-50'
+                    }
+                  >
+                    <div className="flex items-start gap-2">
+                      <span className={error.variant === 'warning' ? 'text-amber-600' : 'text-red-600'}>
+                        {error.icon}
+                      </span>
+                      <AlertDescription className="text-sm">
+                        {error.message}
+                      </AlertDescription>
+                    </div>
                   </Alert>
                 )}
 

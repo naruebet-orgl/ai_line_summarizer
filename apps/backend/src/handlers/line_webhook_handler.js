@@ -6,8 +6,11 @@
 
 const lineService = require('../services/line_service');
 const geminiService = require('../services/gemini_service');
-const { Owner, Room, ChatSession, Summary, LineEventsRaw, Message } = require('../models');
+const { Owner, Room, ChatSession, Summary, LineEventsRaw, Message, Organization } = require('../models');
 const config = require('../config');
+
+// Activation code pattern: ORG-XXXX-XXXX
+const ACTIVATION_CODE_PATTERN = /^ORG-[A-Z0-9]{4}-[A-Z0-9]{4}$/i;
 
 class LineWebhookHandler {
   constructor() {
@@ -88,11 +91,18 @@ class LineWebhookHandler {
    * @returns {Promise<void>}
    */
   async handle_message_event(event) {
-    const { source, message, timestamp } = event;
+    const { source, message, timestamp, replyToken } = event;
     const lineRoomId = source.groupId || source.roomId || source.userId;
     const userId = source.userId;
+    const isGroupChat = source.groupId || source.roomId;
 
     console.log(`💬 Message from room ${lineRoomId}, user ${userId}: ${message.text || 'Non-text message'}`);
+
+    // Check for activation code in group chats
+    if (isGroupChat && message.type === 'text' && ACTIVATION_CODE_PATTERN.test(message.text.trim())) {
+      await this.handle_activation_code(event, lineRoomId, message.text.trim(), replyToken);
+      return; // Don't process activation codes as regular messages
+    }
 
     try {
       // Get or create default owner (bypass owner requirement)
@@ -112,13 +122,27 @@ class LineWebhookHandler {
         roomType = 'individual';
       }
 
-      // Get or create room
-      const room = await Room.find_or_create_room(
-        owner._id,
-        lineRoomId,
-        roomName,
-        roomType
-      );
+      // Get or create room with organization context (Phase 3 auto-mapping)
+      let room;
+      if (owner.organization_id) {
+        // Use organization-aware method for proper multi-tenant isolation
+        room = await Room.find_or_create_room_with_org(
+          owner.organization_id,
+          owner._id,
+          lineRoomId,
+          roomName,
+          roomType
+        );
+        console.log(`🏢 Room auto-mapped to org: ${owner.organization_id}`);
+      } else {
+        // Fallback for legacy owners without organization
+        room = await Room.find_or_create_room(
+          owner._id,
+          lineRoomId,
+          roomName,
+          roomType
+        );
+      }
 
       // Get or create active session
       let session = await ChatSession.find_active_session(room._id);
@@ -136,13 +160,27 @@ class LineWebhookHandler {
 
       // Create new session if needed (no active session or old one was just closed)
       if (!session) {
-        session = await ChatSession.create_new_session(
-          room._id,
-          owner._id,
-          lineRoomId,
-          roomName,
-          roomType
-        );
+        if (owner.organization_id) {
+          // Use organization-aware method for proper multi-tenant isolation
+          session = await ChatSession.create_session_with_org(
+            owner.organization_id,
+            room._id,
+            owner._id,
+            lineRoomId,
+            roomName,
+            roomType
+          );
+          console.log(`🏢 Session auto-mapped to org: ${owner.organization_id}`);
+        } else {
+          // Fallback for legacy owners without organization
+          session = await ChatSession.create_new_session(
+            room._id,
+            owner._id,
+            lineRoomId,
+            roomName,
+            roomType
+          );
+        }
       }
 
       // Process different message types
@@ -366,6 +404,123 @@ class LineWebhookHandler {
     console.log(`👋 User ${userId} unfollowed the LINE OA`);
 
     // Could clean up user data or mark as inactive
+  }
+
+  /**
+   * Handle activation code to link LINE group to organization
+   * @param {Object} event - LINE message event
+   * @param {string} lineRoomId - LINE room ID
+   * @param {string} activationCode - The activation code
+   * @param {string} replyToken - Reply token for sending response
+   */
+  async handle_activation_code(event, lineRoomId, activationCode, replyToken) {
+    console.log(`🔑 Processing activation code: ${activationCode} for room: ${lineRoomId}`);
+
+    try {
+      // Find organization by activation code
+      const organization = await Organization.find_by_activation_code(activationCode);
+
+      if (!organization) {
+        console.log(`❌ Invalid activation code: ${activationCode}`);
+        if (replyToken) {
+          await lineService.reply_message(replyToken, {
+            type: 'text',
+            text: `❌ Invalid activation code: ${activationCode}\n\nPlease check the code and try again.`
+          });
+        }
+        return;
+      }
+
+      console.log(`✅ Found organization: ${organization.name} (${organization._id})`);
+
+      // Check if room is already linked to this organization
+      let room = await Room.findOne({ line_room_id: lineRoomId });
+
+      if (room && room.organization_id && room.organization_id.toString() === organization._id.toString()) {
+        console.log(`ℹ️ Room ${lineRoomId} is already linked to ${organization.name}`);
+        if (replyToken) {
+          await lineService.reply_message(replyToken, {
+            type: 'text',
+            text: `ℹ️ This group is already connected to "${organization.name}".`
+          });
+        }
+        return;
+      }
+
+      // Check if room is linked to a different organization
+      if (room && room.organization_id) {
+        const existingOrg = await Organization.findById(room.organization_id);
+        console.log(`⚠️ Room ${lineRoomId} is currently linked to ${existingOrg?.name || 'unknown org'}`);
+        if (replyToken) {
+          await lineService.reply_message(replyToken, {
+            type: 'text',
+            text: `⚠️ This group is already connected to another organization "${existingOrg?.name || 'Unknown'}". Please contact support if you need to transfer it.`
+          });
+        }
+        return;
+      }
+
+      // Get group name
+      const groupName = await this.get_group_chat_name(event.source.groupId || event.source.roomId) ||
+        `Group Chat (${lineRoomId.substring(0, 8)})`;
+
+      // Create or update room with organization
+      if (room) {
+        // Update existing room with organization
+        room.organization_id = organization._id;
+        room.name = groupName;
+        await room.save();
+        console.log(`✅ Updated existing room ${room._id} with organization ${organization._id}`);
+      } else {
+        // Get or create default owner for the organization (we need an owner reference)
+        const owner = await this.get_or_create_default_owner();
+
+        // Create new room linked to organization
+        room = await Room.create({
+          owner_id: owner._id,
+          organization_id: organization._id,
+          line_room_id: lineRoomId,
+          name: groupName,
+          type: 'group',
+          is_active: true,
+          settings: {
+            auto_summarize: true
+          },
+          statistics: {
+            total_messages: 0,
+            total_sessions: 0,
+            total_summaries: 0
+          }
+        });
+        console.log(`✅ Created new room ${room._id} linked to organization ${organization._id}`);
+      }
+
+      // Update organization group count
+      await organization.increment_usage('current_groups');
+
+      // Send success message
+      if (replyToken) {
+        await lineService.reply_message(replyToken, {
+          type: 'text',
+          text: `✅ Success! This group is now connected to "${organization.name}".\n\n🤖 I will automatically summarize your conversations.\n\n📊 View summaries at: ${process.env.FRONTEND_URL || 'https://your-app.com'}/dashboard/groups`
+        });
+      }
+
+      console.log(`🎉 Successfully linked room ${lineRoomId} to organization ${organization.name}`);
+
+    } catch (error) {
+      console.error('❌ Error handling activation code:', error);
+      if (replyToken) {
+        try {
+          await lineService.reply_message(replyToken, {
+            type: 'text',
+            text: `❌ An error occurred while processing the activation code. Please try again later.`
+          });
+        } catch (replyError) {
+          console.error('❌ Failed to send error reply:', replyError);
+        }
+      }
+    }
   }
 
   /**

@@ -55,6 +55,42 @@ const RoomSchema = new Schema({
       time_limit_hours: { type: Number, default: 24 }
     }
   },
+
+  // Group assignment (for internal organization categorization)
+  assignment: {
+    category: {
+      type: String,
+      enum: ['sales', 'support', 'operations', 'marketing', 'other', 'unassigned'],
+      default: 'unassigned',
+      description: 'Business category for this group'
+    },
+    tags: {
+      type: [String],
+      default: [],
+      description: 'Custom tags for filtering/grouping'
+    },
+    custom_name: {
+      type: String,
+      trim: true,
+      description: 'Override LINE group name with custom display name'
+    },
+    priority: {
+      type: String,
+      enum: ['low', 'normal', 'high', 'critical'],
+      default: 'normal',
+      description: 'Priority level for this group'
+    },
+    assigned_to: [{
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      description: 'Users assigned to monitor this group'
+    }],
+    notes: {
+      type: String,
+      maxlength: 1000,
+      description: 'Internal notes about this group'
+    }
+  },
   created_at: {
     type: Date,
     default: Date.now,
@@ -71,12 +107,23 @@ const RoomSchema = new Schema({
   versionKey: false
 });
 
-// Compound unique index
+// Compound indexes
 RoomSchema.index({ owner_id: 1, line_room_id: 1 }, { unique: true });
 RoomSchema.index({ owner_id: 1, is_active: 1 });
 RoomSchema.index({ organization_id: 1, is_active: 1 });
 RoomSchema.index({ organization_id: 1, type: 1 });
 RoomSchema.index({ 'statistics.last_activity_at': -1 });
+
+// Phase 3: Organization + line_room_id unique index (for multi-tenant isolation)
+RoomSchema.index({ organization_id: 1, line_room_id: 1 }, {
+  unique: true,
+  partialFilterExpression: { organization_id: { $exists: true } }
+});
+
+// Phase 3: Category-based queries
+RoomSchema.index({ organization_id: 1, 'assignment.category': 1 });
+RoomSchema.index({ organization_id: 1, 'assignment.priority': 1 });
+RoomSchema.index({ organization_id: 1, 'assignment.tags': 1 });
 
 // Instance methods
 RoomSchema.methods.update_activity = function() {
@@ -95,12 +142,20 @@ RoomSchema.methods.increment_statistics = function(field, amount = 1) {
 RoomSchema.methods.get_room_summary = function() {
   return {
     room_id: this._id,
+    organization_id: this.organization_id,
     owner_id: this.owner_id,
     line_room_id: this.line_room_id,
     name: this.name,
+    display_name: this.assignment?.custom_name || this.name,
     type: this.type,
     is_active: this.is_active,
-    statistics: this.statistics
+    statistics: this.statistics,
+    assignment: this.assignment || {
+      category: 'unassigned',
+      tags: [],
+      priority: 'normal'
+    },
+    settings: this.settings
   };
 };
 

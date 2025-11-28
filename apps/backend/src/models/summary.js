@@ -6,6 +6,14 @@
 const { Schema, model } = require('mongoose');
 
 const SummarySchema = new Schema({
+  // Organization link (for multi-tenant data isolation)
+  organization_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: false, // Will be required after migration
+    index: true,
+    description: 'Organization this summary belongs to'
+  },
   session_id: {
     type: String,
     ref: 'ChatSession',
@@ -114,6 +122,9 @@ const SummarySchema = new Schema({
 SummarySchema.index({ session_id: 1 });
 SummarySchema.index({ room_id: 1 });
 SummarySchema.index({ owner_id: 1 });
+SummarySchema.index({ organization_id: 1 });
+SummarySchema.index({ organization_id: 1, status: 1 });
+SummarySchema.index({ organization_id: 1, room_id: 1 });
 SummarySchema.index({ status: 1 });
 SummarySchema.index({ created_at: -1 });
 

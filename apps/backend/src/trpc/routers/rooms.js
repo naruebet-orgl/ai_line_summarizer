@@ -1,32 +1,47 @@
 /**
  * Rooms tRPC Router
- * API endpoints for managing chat rooms
+ * @description API endpoints for managing chat rooms with organization-scoped permissions
+ * @module trpc/routers/rooms
  */
 
 const { z } = require('zod');
-const { router, loggedProcedure, adminProcedure } = require('../index');
-const { Room, ChatSession, Summary } = require('../../models');
+const { TRPCError } = require('@trpc/server');
+const { router, withPermission } = require('../index');
+const { Room, ChatSession, Summary, Owner, AuditLog } = require('../../models');
 
+/**
+ * Rooms Router
+ * All endpoints require organization context and appropriate permissions
+ */
 const roomsRouter = router({
-  // Get all rooms with statistics
-  list: loggedProcedure
+  /**
+   * List all rooms with statistics
+   * @permission org:groups:list
+   */
+  list: withPermission('org:groups:list')
     .input(z.object({
       page: z.number().default(1),
       limit: z.number().max(10000).default(20),
       isActive: z.boolean().optional(),
       type: z.enum(['individual', 'group']).optional()
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       let { page, limit, isActive, type } = input;
+
+      console.log(`🔍 Rooms.list called by ${ctx.user?.email} for org ${ctx.organization?.name}`);
 
       // If querying for groups, return ALL groups by default (no pagination)
       if (type === 'group' && limit === 20) {
-        limit = 10000; // Override default limit for groups
+        limit = 10000;
       }
 
       const skip = (page - 1) * limit;
 
+      // Phase 3: Organization-scoped filtering
       const filter = {};
+      if (ctx.organization?._id) {
+        filter.organization_id = ctx.organization._id;
+      }
       if (isActive !== undefined) filter.is_active = isActive;
       if (type) filter.type = type;
 
@@ -48,16 +63,24 @@ const roomsRouter = router({
       };
     }),
 
-  // Get single room with detailed statistics
-  get: loggedProcedure
+  /**
+   * Get single room with detailed statistics
+   * @permission org:groups:view
+   */
+  get: withPermission('org:groups:view')
     .input(z.object({
       roomId: z.string()
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      console.log(`🔍 Rooms.get called by ${ctx.user?.email} for room ${input.roomId}`);
+
       const room = await Room.findById(input.roomId);
 
       if (!room) {
-        throw new Error('Room not found');
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Room not found'
+        });
       }
 
       // Get recent sessions
@@ -79,11 +102,15 @@ const roomsRouter = router({
       };
     }),
 
-  // Get rooms with active sessions
-  withActiveSessions: loggedProcedure
-    .query(async () => {
-      // Get first owner for now (in production, filter by owner)
-      const { Owner } = require('../../models');
+  /**
+   * Get rooms with active sessions
+   * @permission org:groups:list
+   */
+  withActiveSessions: withPermission('org:groups:list')
+    .query(async ({ ctx }) => {
+      console.log(`🔍 Rooms.withActiveSessions called by ${ctx.user?.email}`);
+
+      // Get first owner for now (in production, filter by organization)
       const owner = await Owner.findOne();
 
       if (!owner) {
@@ -95,17 +122,21 @@ const roomsRouter = router({
       return roomsWithSessions;
     }),
 
-  // Get all groups the AI bot is in
-  getAiGroups: loggedProcedure
+  /**
+   * Get all groups the AI bot is in
+   * @permission org:groups:list
+   */
+  getAiGroups: withPermission('org:groups:list')
     .input(z.object({
       ownerId: z.string().optional(),
       isActive: z.boolean().optional()
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      console.log(`🔍 Rooms.getAiGroups called by ${ctx.user?.email}`);
+
       // Get owner ID - use provided or get first owner
       let ownerId = input.ownerId;
       if (!ownerId) {
-        const { Owner } = require('../../models');
         const owner = await Owner.findOne();
         if (!owner) {
           return { groups: [], total: 0 };
@@ -116,8 +147,6 @@ const roomsRouter = router({
       // Pass isActive param (null means return all groups)
       const isActiveFilter = input.isActive !== undefined ? input.isActive : null;
       let groups = await Room.get_ai_groups(ownerId, isActiveFilter);
-
-      // NOTE: Fallback removed - get_ai_groups now returns all groups without owner_id filter
 
       return {
         groups: groups.map(group => ({
@@ -134,19 +163,23 @@ const roomsRouter = router({
       };
     }),
 
-  // Get groups with recent activity
-  getActiveGroups: loggedProcedure
+  /**
+   * Get groups with recent activity
+   * @permission org:groups:list
+   */
+  getActiveGroups: withPermission('org:groups:list')
     .input(z.object({
       ownerId: z.string().optional(),
-      minutesAgo: z.number().max(1440).default(60) // Max 24 hours
+      minutesAgo: z.number().max(1440).default(60)
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const { minutesAgo } = input;
+
+      console.log(`🔍 Rooms.getActiveGroups called by ${ctx.user?.email}`);
 
       // Get owner ID
       let ownerId = input.ownerId;
       if (!ownerId) {
-        const { Owner } = require('../../models');
         const owner = await Owner.findOne();
         if (!owner) {
           return { groups: [], total: 0, timespan: { minutes: minutesAgo } };
@@ -174,22 +207,29 @@ const roomsRouter = router({
       };
     }),
 
-  // Get specific group by LINE group ID
-  getGroupByLineId: loggedProcedure
+  /**
+   * Get specific group by LINE group ID
+   * @permission org:groups:view
+   */
+  getGroupByLineId: withPermission('org:groups:view')
     .input(z.object({
       lineGroupId: z.string(),
       ownerId: z.string().optional()
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const { lineGroupId } = input;
+
+      console.log(`🔍 Rooms.getGroupByLineId called by ${ctx.user?.email} for ${lineGroupId}`);
 
       // Get owner ID
       let ownerId = input.ownerId;
       if (!ownerId) {
-        const { Owner } = require('../../models');
         const owner = await Owner.findOne();
         if (!owner) {
-          throw new Error('No owner found');
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'No owner found'
+          });
         }
         ownerId = owner._id;
       }
@@ -197,7 +237,10 @@ const roomsRouter = router({
       const group = await Room.get_group_by_line_id(lineGroupId, ownerId);
 
       if (!group) {
-        throw new Error('Group not found');
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Group not found'
+        });
       }
 
       return {
@@ -213,16 +256,20 @@ const roomsRouter = router({
       };
     }),
 
-  // Get group statistics summary
-  getGroupStats: loggedProcedure
+  /**
+   * Get group statistics summary
+   * @permission org:analytics:view
+   */
+  getGroupStats: withPermission('org:analytics:view')
     .input(z.object({
       ownerId: z.string().optional()
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      console.log(`📊 Rooms.getGroupStats called by ${ctx.user?.email}`);
+
       // Get owner ID
       let ownerId = input.ownerId;
       if (!ownerId) {
-        const { Owner } = require('../../models');
         const owner = await Owner.findOne();
         if (!owner) {
           return {
@@ -248,8 +295,11 @@ const roomsRouter = router({
       };
     }),
 
-  // Update room settings (admin only)
-  updateSettings: adminProcedure
+  /**
+   * Update room settings
+   * @permission org:groups:settings
+   */
+  updateSettings: withPermission('org:groups:settings')
     .input(z.object({
       roomId: z.string(),
       settings: z.object({
@@ -260,12 +310,20 @@ const roomsRouter = router({
         }).optional()
       })
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      console.log(`⚙️ Rooms.updateSettings called by ${ctx.user?.email} for room ${input.roomId}`);
+
       const room = await Room.findById(input.roomId);
 
       if (!room) {
-        throw new Error('Room not found');
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Room not found'
+        });
       }
+
+      // Store old settings for audit
+      const old_settings = { ...room.settings.toObject() };
 
       if (input.settings.auto_summarize !== undefined) {
         room.settings.auto_summarize = input.settings.auto_summarize;
@@ -282,6 +340,21 @@ const roomsRouter = router({
 
       await room.save();
 
+      // Audit log
+      await AuditLog.log({
+        organization_id: ctx.organization?._id,
+        user_id: ctx.user._id,
+        action: 'room:settings:update',
+        category: 'room',
+        resource_type: 'room',
+        resource_id: room._id,
+        description: `Updated settings for room ${room.name}`,
+        changes: {
+          before: old_settings,
+          after: room.settings.toObject()
+        }
+      });
+
       return {
         success: true,
         message: 'Room settings updated successfully',
@@ -289,16 +362,24 @@ const roomsRouter = router({
       };
     }),
 
-  // Archive room (admin only)
-  archive: adminProcedure
+  /**
+   * Archive room
+   * @permission org:groups:settings (admin level)
+   */
+  archive: withPermission('org:groups:settings')
     .input(z.object({
       roomId: z.string()
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      console.log(`📦 Rooms.archive called by ${ctx.user?.email} for room ${input.roomId}`);
+
       const room = await Room.findById(input.roomId);
 
       if (!room) {
-        throw new Error('Room not found');
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Room not found'
+        });
       }
 
       // Close any active sessions
@@ -310,16 +391,37 @@ const roomsRouter = router({
       room.is_active = false;
       await room.save();
 
+      // Audit log
+      await AuditLog.log({
+        organization_id: ctx.organization?._id,
+        user_id: ctx.user._id,
+        action: 'room:archive',
+        category: 'room',
+        resource_type: 'room',
+        resource_id: room._id,
+        description: `Archived room ${room.name}`,
+        metadata: { room_name: room.name, line_room_id: room.line_room_id }
+      });
+
       return {
         success: true,
         message: 'Room archived successfully'
       };
     }),
 
-  // Get room statistics
-  stats: loggedProcedure
-    .query(async () => {
+  /**
+   * Get room statistics
+   * @permission org:analytics:view
+   */
+  stats: withPermission('org:analytics:view')
+    .query(async ({ ctx }) => {
+      console.log(`📊 Rooms.stats called by ${ctx.user?.email}`);
+
+      // Phase 3: Organization-scoped statistics
+      const orgFilter = ctx.organization?._id ? { organization_id: ctx.organization._id } : {};
+
       const stats = await Room.aggregate([
+        { $match: orgFilter },
         {
           $group: {
             _id: '$type',
@@ -332,10 +434,10 @@ const roomsRouter = router({
         }
       ]);
 
-      const activeRooms = await Room.countDocuments({ is_active: true });
-      const totalRooms = await Room.countDocuments();
+      const activeRooms = await Room.countDocuments({ ...orgFilter, is_active: true });
+      const totalRooms = await Room.countDocuments(orgFilter);
 
-      const mostActiveRooms = await Room.find({ is_active: true })
+      const mostActiveRooms = await Room.find({ ...orgFilter, is_active: true })
         .sort({ 'statistics.total_messages': -1 })
         .limit(5)
         .select('name type statistics');

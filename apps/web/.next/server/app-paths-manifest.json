@@ -1,14 +1,15 @@
 {
-  "/api/auth/register/route": "app/api/auth/register/route.js",
   "/api/auth/verify/route": "app/api/auth/verify/route.js",
-  "/api/trpc/[trpc]/route": "app/api/trpc/[trpc]/route.js",
+  "/api/organizations/[orgId]/audit-logs/route": "app/api/organizations/[orgId]/audit-logs/route.js",
   "/_not-found/page": "app/_not-found/page.js",
-  "/login/page": "app/login/page.js",
-  "/register/page": "app/register/page.js",
+  "/api/trpc/[trpc]/route": "app/api/trpc/[trpc]/route.js",
+  "/api/organizations/[orgId]/activation-code/route": "app/api/organizations/[orgId]/activation-code/route.js",
+  "/api/organizations/[orgId]/route": "app/api/organizations/[orgId]/route.js",
+  "/api/organizations/[orgId]/member-invite-code/route": "app/api/organizations/[orgId]/member-invite-code/route.js",
+  "/dashboard/settings/organization/page": "app/dashboard/settings/organization/page.js",
+  "/dashboard/settings/members/page": "app/dashboard/settings/members/page.js",
+  "/dashboard/settings/groups/page": "app/dashboard/settings/groups/page.js",
   "/dashboard/page": "app/dashboard/page.js",
   "/dashboard/groups/page": "app/dashboard/groups/page.js",
-  "/dashboard/join-org/page": "app/dashboard/join-org/page.js",
-  "/dashboard/settings/members/page": "app/dashboard/settings/members/page.js",
-  "/dashboard/settings/invite-codes/page": "app/dashboard/settings/invite-codes/page.js",
-  "/dashboard/settings/join-requests/page": "app/dashboard/settings/join-requests/page.js"
+  "/dashboard/billing/page": "app/dashboard/billing/page.js"
 }

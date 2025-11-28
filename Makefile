@@ -1,197 +1,142 @@
-.PHONY: install start dev stop clean backend frontend help migrate migrate-rollback db-backup db-restore lint build test
+# LINE Chat Summarizer AI - Development Makefile
+# Usage: make <target>
 
-# Paths
-BACKEND_DIR = apps/backend
-WEB_DIR = apps/web
-MIGRATIONS_DIR = $(BACKEND_DIR)/scripts/migrations
-DB_SCRIPTS_DIR = $(BACKEND_DIR)/scripts/db
+.PHONY: help dev dev-web dev-backend start clean clean-all install build lint test restart
 
 # Default target
 help:
-	@echo "═══════════════════════════════════════════════════════════════"
-	@echo "  LINE Chat Summarizer AI - Monorepo Commands"
-	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "LINE Chat Summarizer AI - Development Commands"
+	@echo ""
+	@echo "Usage: make <target>"
 	@echo ""
 	@echo "Development:"
-	@echo "  make install       - Install all dependencies (pnpm)"
-	@echo "  make start         - Start both frontend and backend"
-	@echo "  make dev           - Alias for start"
-	@echo "  make backend       - Start only backend server"
-	@echo "  make frontend      - Start only frontend server"
-	@echo "  make stop          - Stop all running processes"
-	@echo "  make clean         - Clean and reinstall dependencies"
+	@echo "  dev          - Start both frontend and backend in development mode"
+	@echo "  dev-web      - Start only the frontend (Next.js)"
+	@echo "  dev-backend  - Start only the backend (Express)"
+	@echo "  restart      - Clean cache and restart development servers"
 	@echo ""
-	@echo "Build & Quality:"
-	@echo "  make build         - Build all packages"
-	@echo "  make lint          - Run linting on all packages"
-	@echo "  make test          - Run tests"
-	@echo "  make typecheck     - Run TypeScript type checking"
+	@echo "Build & Production:"
+	@echo "  build        - Build all packages for production"
+	@echo "  start        - Start production servers"
 	@echo ""
-	@echo "Database:"
-	@echo "  make migrate       - Run database migrations"
-	@echo "  make migrate-rollback - Rollback last migration"
-	@echo "  make db-backup     - Backup MongoDB database"
-	@echo "  make db-restore    - Restore MongoDB database"
-	@echo "  make db-stats      - Show database statistics"
-	@echo "  make db-cleanup    - Clean up old sessions"
+	@echo "Maintenance:"
+	@echo "  install      - Install all dependencies"
+	@echo "  clean        - Remove node_modules and build artifacts"
+	@echo "  clean-all    - Deep clean including .next cache"
+	@echo "  clean-cache  - Clean only Next.js cache (quick restart)"
 	@echo ""
-	@echo "Organization:"
-	@echo "  make migrate-org   - Run organization model migration"
-	@echo "  make rollback-org  - Rollback organization model migration"
-	@echo ""
-	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "Quality:"
+	@echo "  lint         - Run linters on all packages"
+	@echo "  test         - Run tests on all packages"
+	@echo "  typecheck    - Run TypeScript type checking"
 
-# ════════════════════════════════════════════════════════════════
-# Development Commands
-# ════════════════════════════════════════════════════════════════
+# ============================================================
+# DEVELOPMENT
+# ============================================================
 
-# Install dependencies using pnpm
-install:
-	@echo "📦 Installing dependencies with pnpm..."
-	pnpm install
-	@echo "✅ All dependencies installed!"
+# Start both frontend and backend
+dev:
+	@echo "🚀 Starting development servers..."
+	pnpm run dev
 
-# Start both services
-start:
-	@echo "🚀 Starting LINE Chat Summarizer AI..."
-	@echo ""
-	@echo "  Backend:  http://localhost:3001"
-	@echo "  Frontend: http://localhost:3000"
-	@echo ""
-	@echo "Press Ctrl+C to stop both services"
-	@echo ""
-	@make -j2 backend frontend
+# Start only frontend
+dev-web:
+	@echo "🌐 Starting frontend (Next.js)..."
+	pnpm run dev:web
 
-# Alias for start
-dev: start
+# Start only backend
+dev-backend:
+	@echo "⚙️  Starting backend (Express)..."
+	pnpm run dev:backend
 
-# Start backend only
-backend:
-	@echo "🔧 Starting backend server..."
-	cd $(BACKEND_DIR) && pnpm start
+# Restart development (clean cache first)
+restart: clean-cache
+	@echo "🔄 Restarting development servers..."
+	pnpm run dev
 
-# Start frontend only
-frontend:
-	@echo "🎨 Starting frontend server..."
-	cd $(WEB_DIR) && pnpm dev
+# ============================================================
+# BUILD & PRODUCTION
+# ============================================================
 
-# Stop all processes
-stop:
-	@echo "⏹️  To stop services, press Ctrl+C in the running terminal"
-	@echo "   Or use: pkill -f 'node.*apps/backend' && pkill -f 'next-server'"
-
-# Clean and reinstall
-clean:
-	@echo "🧹 Cleaning up..."
-	rm -rf node_modules
-	rm -rf $(BACKEND_DIR)/node_modules
-	rm -rf $(WEB_DIR)/node_modules
-	rm -rf $(WEB_DIR)/.next
-	@echo "🔄 Reinstalling dependencies..."
-	@make install
-
-# ════════════════════════════════════════════════════════════════
-# Build & Quality Commands
-# ════════════════════════════════════════════════════════════════
-
-# Build all packages
 build:
-	@echo "🏗️  Building all packages..."
-	cd $(WEB_DIR) && pnpm build
-	@echo "✅ Build complete!"
+	@echo "📦 Building all packages..."
+	pnpm run build
 
-# Run linting
+start:
+	@echo "🏃 Starting production servers..."
+	pnpm run start
+
+# ============================================================
+# MAINTENANCE
+# ============================================================
+
+# Install dependencies
+install:
+	@echo "📥 Installing dependencies..."
+	pnpm install
+
+# Clean node_modules and build artifacts
+clean:
+	@echo "🧹 Cleaning node_modules and build artifacts..."
+	pnpm run clean
+
+# Deep clean including .next cache
+clean-all:
+	@echo "🧹 Deep cleaning all build artifacts..."
+	pnpm run clean:all
+
+# Quick clean - just Next.js cache (useful for hot reload issues)
+clean-cache:
+	@echo "🧹 Cleaning Next.js cache..."
+	rm -rf apps/web/.next
+	rm -rf apps/web/tsconfig.tsbuildinfo
+	@echo "✅ Cache cleaned"
+
+# ============================================================
+# QUALITY
+# ============================================================
+
 lint:
-	@echo "🔍 Running linter..."
-	cd $(WEB_DIR) && pnpm lint
-	@echo "✅ Linting complete!"
+	@echo "🔍 Running linters..."
+	pnpm run lint
 
-# Run tests
+lint-fix:
+	@echo "🔧 Running linters with auto-fix..."
+	pnpm run lint:fix
+
 test:
 	@echo "🧪 Running tests..."
-	cd $(BACKEND_DIR) && pnpm test || true
-	cd $(WEB_DIR) && pnpm test || true
-	@echo "✅ Tests complete!"
+	pnpm run test
 
-# TypeScript type checking
 typecheck:
-	@echo "📝 Running TypeScript type check..."
-	cd $(WEB_DIR) && npx tsc --noEmit
-	@echo "✅ Type check complete!"
+	@echo "📝 Running TypeScript type checking..."
+	pnpm run typecheck
 
-# ════════════════════════════════════════════════════════════════
-# Database Commands
-# ════════════════════════════════════════════════════════════════
+# ============================================================
+# DATABASE
+# ============================================================
 
-# Run all pending migrations
-migrate:
-	@echo "🔄 Running database migrations..."
-	@for file in $(MIGRATIONS_DIR)/[0-9]*.js; do \
-		if [ -f "$$file" ] && [[ ! "$$file" == *"rollback"* ]]; then \
-			echo "Running: $$file"; \
-			cd $(BACKEND_DIR) && node $${file#$(BACKEND_DIR)/}; \
-		fi \
-	done
-	@echo "✅ Migrations complete!"
+db-check:
+	@echo "🔍 Checking database for issues..."
+	pnpm --filter @line-chat-summarizer/backend run db:check
 
-# Run organization model migration
-migrate-org:
-	@echo "🏢 Running organization model migration..."
-	cd $(BACKEND_DIR) && node scripts/migrations/001_add_organization_model.js
-	@echo "✅ Organization migration complete!"
+db-cleanup-dry:
+	@echo "🧹 Database cleanup (dry run)..."
+	pnpm --filter @line-chat-summarizer/backend run db:cleanup
 
-# Rollback organization model migration
-rollback-org:
-	@echo "⏪ Rolling back organization model migration..."
-	cd $(BACKEND_DIR) && node scripts/migrations/001_rollback.js
-	@echo "✅ Rollback complete!"
-
-# Backup MongoDB database
-db-backup:
-	@echo "💾 Backing up database..."
-	cd $(BACKEND_DIR) && node scripts/db/backup_mongodb.js
-	@echo "✅ Backup complete!"
-
-# Restore MongoDB database
-db-restore:
-	@echo "📥 Restoring database..."
-	@read -p "Enter backup file path: " BACKUP_PATH; \
-	cd $(BACKEND_DIR) && node scripts/db/restore_mongodb.js $$BACKUP_PATH
-	@echo "✅ Restore complete!"
-
-# Show database statistics
-db-stats:
-	@echo "📊 Database statistics..."
-	cd $(BACKEND_DIR) && node scripts/db/db_stats.js
-
-# Clean up old sessions
 db-cleanup:
-	@echo "🧹 Cleaning up old sessions..."
-	cd $(BACKEND_DIR) && node scripts/db/cleanup_sessions.js
-	@echo "✅ Cleanup complete!"
+	@echo "🧹 Executing database cleanup..."
+	pnpm --filter @line-chat-summarizer/backend run db:cleanup:execute
 
-# ════════════════════════════════════════════════════════════════
-# Docker Commands (for production)
-# ════════════════════════════════════════════════════════════════
+# ============================================================
+# SHORTCUTS
+# ============================================================
 
-# Build Docker images
-docker-build:
-	@echo "🐳 Building Docker images..."
-	docker-compose build
-	@echo "✅ Docker build complete!"
+# Quick restart for auth/settings issues
+fix-auth: clean-cache
+	@echo "🔄 Cleared cache. Restart backend manually, then run 'make dev-web'"
+	@echo "Backend: cd apps/backend && pnpm dev"
 
-# Start Docker containers
-docker-up:
-	@echo "🐳 Starting Docker containers..."
-	docker-compose up -d
-	@echo "✅ Containers started!"
-
-# Stop Docker containers
-docker-down:
-	@echo "🐳 Stopping Docker containers..."
-	docker-compose down
-	@echo "✅ Containers stopped!"
-
-# View Docker logs
-docker-logs:
-	docker-compose logs -f
+# Full reset
+reset: clean-all install
+	@echo "✅ Full reset complete. Run 'make dev' to start."

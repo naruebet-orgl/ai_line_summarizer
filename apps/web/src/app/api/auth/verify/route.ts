@@ -66,7 +66,9 @@ export async function GET(request: NextRequest) {
             const response = NextResponse.json({
               success: true,
               authenticated: true,
-              user: verifyData.user
+              user: verifyData.user,
+              organization: verifyData.organization || null,
+              organizations: verifyData.organizations || []
             });
 
             // Update cookies with new tokens
@@ -103,7 +105,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       authenticated: true,
-      user: data.user
+      user: data.user,
+      organization: data.organization || null,
+      organizations: data.organizations || []
     });
   } catch (error) {
     console.error('❌ Verify proxy error:', error);

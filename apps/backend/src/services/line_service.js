@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const config = require('../config');
 const mongoose = require('mongoose');
+const ImageOptimizer = require('./image_optimizer');
 
 class LineService {
   constructor() {
@@ -266,11 +267,23 @@ class LineService {
   }
 
   /**
-   * Download image content from LINE servers and save to MongoDB GridFS
+   * Download image content from LINE servers, optimize it, and save to MongoDB GridFS.
+   *
+   * Image optimization includes:
+   * - Automatic compression (reduces file size by 40-80% typically)
+   * - Conversion to WebP format for better compression
+   * - Resizing if larger than 1920x1920 pixels
+   * - EXIF metadata stripping for privacy and size
+   *
    * @param {string} messageId - LINE message ID
+   * @param {Object} options - Optional optimization configuration
+   * @param {boolean} options.skip_optimization - Skip optimization and save original
+   * @param {number} options.max_width - Maximum width (default: 1920)
+   * @param {number} options.max_height - Maximum height (default: 1920)
+   * @param {number} options.quality - Compression quality 1-100 (default: 80)
    * @returns {Promise<string|null>} - GridFS file ID or null if failed
    */
-  async download_and_save_image(messageId) {
+  async download_and_save_image(messageId, options = {}) {
     try {
       console.log(`📥 Downloading image for message ID: ${messageId}`);
 
@@ -278,33 +291,58 @@ class LineService {
       const contentUrl = `https://api-data.line.me/v2/bot/message/${messageId}/content`;
       console.log(`🔗 Content URL: ${contentUrl}`);
 
-      // Download image from LINE API with proper headers
+      // Download image from LINE API as buffer (not stream) for optimization
       const response = await axios.get(contentUrl, {
         headers: {
           'Authorization': `Bearer ${this.channelAccessToken}`,
           'User-Agent': 'LINE-Chat-Summarizer/1.0'
         },
-        responseType: 'stream',
-        timeout: 30000, // 30 second timeout
+        responseType: 'arraybuffer',
+        timeout: 30000,
         maxRedirects: 5
       });
 
       // Check if we have a valid response
-      if (!response.data) {
+      if (!response.data || response.data.length === 0) {
         console.error('❌ No image data received from LINE API');
         return null;
       }
 
       // Get content type and size
-      const contentType = response.headers['content-type'] || 'image/jpeg';
-      const contentLength = response.headers['content-length'];
+      const originalContentType = response.headers['content-type'] || 'image/jpeg';
+      const originalSize = response.data.length;
 
-      console.log(`📊 Image info: ${contentType}, ${contentLength} bytes`);
+      console.log(`📊 Original image: ${originalContentType}, ${ImageOptimizer.format_bytes(originalSize)}`);
 
       // Validate content type
-      if (!contentType.startsWith('image/')) {
-        console.error(`❌ Invalid content type: ${contentType}`);
+      if (!originalContentType.startsWith('image/')) {
+        console.error(`❌ Invalid content type: ${originalContentType}`);
         return null;
+      }
+
+      // Prepare image buffer and metadata
+      let imageBuffer = Buffer.from(response.data);
+      let finalContentType = originalContentType;
+      let optimizationResult = null;
+
+      // Optimize image unless explicitly skipped
+      if (!options.skip_optimization) {
+        const optimizerOptions = {};
+        if (options.max_width) optimizerOptions.max_width = options.max_width;
+        if (options.max_height) optimizerOptions.max_height = options.max_height;
+        if (options.quality) {
+          optimizerOptions.jpeg_quality = options.quality;
+          optimizerOptions.webp_quality = options.quality;
+        }
+
+        optimizationResult = await ImageOptimizer.optimize(
+          imageBuffer,
+          originalContentType,
+          optimizerOptions
+        );
+
+        imageBuffer = optimizationResult.buffer;
+        finalContentType = optimizationResult.content_type;
       }
 
       // Create GridFS bucket
@@ -312,29 +350,44 @@ class LineService {
         bucketName: 'images'
       });
 
-      // Create upload stream
+      // Build metadata with optimization info
+      const metadata = {
+        messageId: messageId,
+        contentType: finalContentType,
+        source: 'line_webhook',
+        uploadedAt: new Date(),
+        originalUrl: contentUrl,
+        // Optimization metadata
+        original_size: originalSize,
+        original_content_type: originalContentType,
+        optimized: !options.skip_optimization,
+        ...(optimizationResult && !optimizationResult.fallback && {
+          size_reduction: optimizationResult.size_reduction,
+          reduction_percent: optimizationResult.reduction_percent,
+          original_dimensions: optimizationResult.original_dimensions,
+          optimized_dimensions: optimizationResult.optimized_dimensions,
+          processing_time_ms: optimizationResult.processing_time_ms
+        })
+      };
+
+      // Create upload stream with metadata
       const uploadStream = bucket.openUploadStream(`line_image_${messageId}`, {
-        metadata: {
-          messageId: messageId,
-          contentType: contentType,
-          source: 'line_webhook',
-          uploadedAt: new Date(),
-          originalUrl: contentUrl
-        }
+        metadata: metadata
       });
 
       // Return a promise that resolves with the file ID
       return new Promise((resolve, reject) => {
-        let hasData = false;
-
         uploadStream.on('finish', () => {
-          if (hasData) {
-            console.log(`✅ Image saved to GridFS with ID: ${uploadStream.id}`);
-            resolve(uploadStream.id.toString());
-          } else {
-            console.error('❌ No data was written to GridFS');
-            reject(new Error('No image data received'));
+          const savedSize = imageBuffer.length;
+          const savings = originalSize - savedSize;
+          const savingsPercent = ((savings / originalSize) * 100).toFixed(1);
+
+          console.log(`✅ Image saved to GridFS with ID: ${uploadStream.id}`);
+          console.log(`   Final size: ${ImageOptimizer.format_bytes(savedSize)}`);
+          if (savings > 0) {
+            console.log(`   Space saved: ${ImageOptimizer.format_bytes(savings)} (${savingsPercent}%)`);
           }
+          resolve(uploadStream.id.toString());
         });
 
         uploadStream.on('error', (error) => {
@@ -342,22 +395,12 @@ class LineService {
           reject(error);
         });
 
-        // Track if we receive any data
-        response.data.on('data', () => {
-          hasData = true;
-        });
-
-        response.data.on('error', (error) => {
-          console.error('❌ Error reading image stream:', error);
-          reject(error);
-        });
-
-        // Pipe the response data to GridFS
-        response.data.pipe(uploadStream);
+        // Write the optimized buffer to GridFS
+        uploadStream.end(imageBuffer);
       });
 
     } catch (error) {
-      console.error('❌ Error downloading image from LINE:', error);
+      console.error('❌ Error downloading/optimizing image from LINE:', error);
 
       // Check for specific LINE API errors
       if (error.response) {

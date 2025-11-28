@@ -1,12 +1,18 @@
 /**
  * Login API Route
- * @description Proxies login requests to backend
+ * @description Proxies login requests to backend and sets auth cookies
+ * @returns {Object} User data on success, or error with specific code
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001';
 
+/**
+ * POST /api/auth/login
+ * @param request - Next.js request object with email and password
+ * @returns Response with user data and cookies on success, or error details
+ */
 export async function POST(request: NextRequest) {
   console.log('🔐 POST /api/auth/login - Proxying to backend');
 
@@ -16,7 +22,11 @@ export async function POST(request: NextRequest) {
 
     if (!email || !password) {
       return NextResponse.json(
-        { success: false, error: 'Email and password are required' },
+        {
+          success: false,
+          error: 'Email and password are required',
+          error_code: 'MISSING_CREDENTIALS'
+        },
         { status: 400 }
       );
     }
@@ -32,8 +42,19 @@ export async function POST(request: NextRequest) {
 
     const data = await backendResponse.json();
 
+    // Forward backend errors with full details
     if (!backendResponse.ok) {
-      return NextResponse.json(data, { status: backendResponse.status });
+      console.log(`❌ Backend login error: ${data.error_code} - ${data.error}`);
+      return NextResponse.json(
+        {
+          success: false,
+          error: data.error || 'Login failed',
+          error_code: data.error_code || 'UNKNOWN_ERROR',
+          ...(data.lock_minutes && { lock_minutes: data.lock_minutes }),
+          ...(data.status && { status: data.status })
+        },
+        { status: backendResponse.status }
+      );
     }
 
     // Create response with cookies
@@ -66,8 +87,25 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     console.error('❌ Login proxy error:', error);
+
+    // Check if backend is unreachable
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Unable to connect to server. Please try again.',
+          error_code: 'CONNECTION_ERROR'
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
-      { success: false, error: 'Login failed. Please try again.' },
+      {
+        success: false,
+        error: 'An unexpected error occurred. Please try again.',
+        error_code: 'SERVER_ERROR'
+      },
       { status: 500 }
     );
   }

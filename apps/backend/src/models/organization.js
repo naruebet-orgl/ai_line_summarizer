@@ -148,6 +148,30 @@ const OrganizationSchema = new Schema({
     }
   },
 
+  // Group Activation Code - used to link LINE groups to this organization
+  activation_code: {
+    type: String,
+    unique: true,
+    sparse: true,  // Allow null values while maintaining uniqueness for non-null
+    index: true
+  },
+  activation_code_generated_at: {
+    type: Date,
+    default: null
+  },
+
+  // Member Invite Code - used to invite members to join organization (requires approval)
+  member_invite_code: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true
+  },
+  member_invite_code_generated_at: {
+    type: Date,
+    default: null
+  },
+
   // Metadata
   created_by: {
     type: Schema.Types.ObjectId,
@@ -207,6 +231,128 @@ OrganizationSchema.statics.generate_slug = function(name) {
 OrganizationSchema.statics.find_by_slug = async function(slug) {
   console.log(`🔍 Finding organization by slug: ${slug}`);
   return this.findOne({ slug: slug.toLowerCase() });
+};
+
+/**
+ * Generate a unique activation code
+ * @returns {string} Unique activation code (format: ORG-XXXX-XXXX)
+ */
+OrganizationSchema.statics.generate_activation_code = function() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Exclude confusing characters: 0, O, I, 1
+  let code = 'ORG-';
+  for (let i = 0; i < 4; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  code += '-';
+  for (let i = 0; i < 4; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+};
+
+/**
+ * Find organization by activation code
+ * @param {string} code - Activation code
+ * @returns {Promise<Organization>} Organization document or null
+ */
+OrganizationSchema.statics.find_by_activation_code = async function(code) {
+  console.log(`🔍 Finding organization by activation code: ${code}`);
+  if (!code) return null;
+  return this.findOne({ activation_code: code.toUpperCase().trim() });
+};
+
+/**
+ * Generate or regenerate activation code for this organization
+ * @returns {Promise<Organization>} Updated organization with new activation code
+ */
+OrganizationSchema.methods.generate_new_activation_code = async function() {
+  console.log(`🔑 Generating new activation code for org: ${this._id}`);
+
+  let attempts = 0;
+  const maxAttempts = 10;
+
+  while (attempts < maxAttempts) {
+    const newCode = this.model('Organization').generate_activation_code();
+
+    // Check if code is unique
+    const existing = await this.model('Organization').findOne({
+      activation_code: newCode,
+      _id: { $ne: this._id }
+    });
+
+    if (!existing) {
+      this.activation_code = newCode;
+      this.activation_code_generated_at = new Date();
+      await this.save();
+      console.log(`✅ Generated activation code: ${newCode}`);
+      return this;
+    }
+
+    attempts++;
+  }
+
+  throw new Error('Failed to generate unique activation code after multiple attempts');
+};
+
+/**
+ * Generate a unique member invite code
+ * @returns {string} Unique member invite code (format: XXXX-XXXX)
+ */
+OrganizationSchema.statics.generate_member_invite_code = function() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Exclude confusing characters: 0, O, I, 1
+  let code = '';
+  for (let i = 0; i < 4; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  code += '-';
+  for (let i = 0; i < 4; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+};
+
+/**
+ * Find organization by member invite code
+ * @param {string} code - Member invite code
+ * @returns {Promise<Organization>} Organization document or null
+ */
+OrganizationSchema.statics.find_by_member_invite_code = async function(code) {
+  console.log(`🔍 Finding organization by member invite code: ${code}`);
+  if (!code) return null;
+  return this.findOne({ member_invite_code: code.toUpperCase().trim() });
+};
+
+/**
+ * Generate or regenerate member invite code for this organization
+ * @returns {Promise<Organization>} Updated organization with new member invite code
+ */
+OrganizationSchema.methods.generate_new_member_invite_code = async function() {
+  console.log(`🔑 Generating new member invite code for org: ${this._id}`);
+
+  let attempts = 0;
+  const maxAttempts = 10;
+
+  while (attempts < maxAttempts) {
+    const newCode = this.model('Organization').generate_member_invite_code();
+
+    // Check if code is unique
+    const existing = await this.model('Organization').findOne({
+      member_invite_code: newCode,
+      _id: { $ne: this._id }
+    });
+
+    if (!existing) {
+      this.member_invite_code = newCode;
+      this.member_invite_code_generated_at = new Date();
+      await this.save();
+      console.log(`✅ Generated member invite code: ${newCode}`);
+      return this;
+    }
+
+    attempts++;
+  }
+
+  throw new Error('Failed to generate unique member invite code after multiple attempts');
 };
 
 /**
@@ -422,6 +568,10 @@ OrganizationSchema.methods.get_summary = function() {
     limits: this.limits,
     usage: this.usage,
     settings: this.settings,
+    activation_code: this.activation_code,
+    activation_code_generated_at: this.activation_code_generated_at,
+    member_invite_code: this.member_invite_code,
+    member_invite_code_generated_at: this.member_invite_code_generated_at,
     created_at: this.created_at,
     updated_at: this.updated_at
   };

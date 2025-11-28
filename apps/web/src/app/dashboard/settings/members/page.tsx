@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,8 +9,81 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuth } from '@/lib/auth';
 import {
   Users, Crown, Shield, User, Eye, CheckCircle, AlertCircle, Loader2,
-  RefreshCw, Mail, Calendar, MoreVertical, UserMinus
+  RefreshCw, Mail, Calendar, MoreVertical, UserMinus, Info
 } from 'lucide-react';
+
+/**
+ * Role Permissions Tooltip Component
+ * Uses portal to render outside overflow containers
+ */
+function RolePermissionsTooltip() {
+  const [show_tooltip, set_show_tooltip] = useState(false);
+  const [position, set_position] = useState({ top: 0, left: 0 });
+  const button_ref = useRef<HTMLButtonElement>(null);
+
+  const handle_mouse_enter = () => {
+    if (button_ref.current) {
+      const rect = button_ref.current.getBoundingClientRect();
+      set_position({
+        top: rect.bottom + 8,
+        left: rect.left
+      });
+      set_show_tooltip(true);
+    }
+  };
+
+  const handle_mouse_leave = () => {
+    set_show_tooltip(false);
+  };
+
+  return (
+    <>
+      <button
+        ref={button_ref}
+        className="text-gray-400 hover:text-gray-600 transition-colors p-1"
+        type="button"
+        onMouseEnter={handle_mouse_enter}
+        onMouseLeave={handle_mouse_leave}
+      >
+        <Info className="w-5 h-5" />
+      </button>
+
+      {show_tooltip && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed z-[99999] animate-in fade-in duration-150"
+          style={{ top: position.top, left: position.left }}
+          onMouseEnter={() => set_show_tooltip(true)}
+          onMouseLeave={() => set_show_tooltip(false)}
+        >
+          <div className="bg-gray-900 text-white text-sm rounded-lg shadow-xl p-3 w-64">
+            <p className="font-semibold mb-2">Role Permissions</p>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <Crown className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
+                <span><strong>Owner:</strong> Full access, billing</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Shield className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                <span><strong>Admin:</strong> Manage members</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <User className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
+                <span><strong>Member:</strong> View & interact</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Eye className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                <span><strong>Viewer:</strong> Read-only</span>
+              </div>
+            </div>
+            {/* Arrow pointing up */}
+            <div className="absolute left-4 -top-1 w-2 h-2 bg-gray-900 rotate-45"></div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
 
 interface Member {
   id: string;
@@ -206,7 +280,10 @@ export default function MembersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Members</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold text-gray-900">Members</h1>
+            <RolePermissionsTooltip />
+          </div>
           <p className="text-gray-500 mt-1">Manage your organization members and their roles</p>
         </div>
       </div>
@@ -399,44 +476,6 @@ export default function MembersPage() {
         </CardContent>
       </Card>
 
-      {/* Role Permissions Info */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Role Permissions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3 text-sm">
-            <div className="flex items-start gap-3">
-              <Crown className="w-5 h-5 text-yellow-600 mt-0.5" />
-              <div>
-                <p className="font-medium">Owner</p>
-                <p className="text-gray-500">Full access. Can manage billing, delete organization, transfer ownership.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <Shield className="w-5 h-5 text-blue-600 mt-0.5" />
-              <div>
-                <p className="font-medium">Admin</p>
-                <p className="text-gray-500">Can manage members, invite codes, and organization settings.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <User className="w-5 h-5 text-gray-600 mt-0.5" />
-              <div>
-                <p className="font-medium">Member</p>
-                <p className="text-gray-500">Can view and interact with all organization content.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <Eye className="w-5 h-5 text-gray-400 mt-0.5" />
-              <div>
-                <p className="font-medium">Viewer</p>
-                <p className="text-gray-500">Read-only access to organization content.</p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

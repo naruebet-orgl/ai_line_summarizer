@@ -2,7 +2,1075 @@
 
 All notable changes to the LINE Chat Summarizer AI project will be documented in this file.
 
-## [Unreleased] - 2025-11-26
+## [Unreleased] - 2025-11-28
+
+### Refactor: Move Billing to Standalone Page & Remove Audit (2025-11-28)
+
+**Changes:**
+1. Moved Billing page from `/dashboard/settings/billing` to `/dashboard/billing`
+2. Added Billing as a standalone sidebar navigation item
+3. Removed Audit page entirely (`/dashboard/settings/audit`)
+4. Simplified settings tabs to: Organization, Members, Requests, Groups
+
+**Files Changed:**
+- Created `apps/web/src/app/dashboard/billing/page.tsx` (standalone billing page)
+- Updated `apps/web/src/app/dashboard/layout.tsx`:
+  - Added Billing to sidebar nav with CreditCard icon
+  - Removed Billing and Audit from SETTINGS_TABS
+  - Removed ScrollText icon import
+  - Added isActiveTab handler for `/dashboard/billing`
+- Deleted `apps/web/src/app/dashboard/settings/billing/` folder
+- Deleted `apps/web/src/app/dashboard/settings/audit/` folder
+
+**Navigation Structure After:**
+```
+Sidebar:
+├── Groups
+├── Join Org
+├── Billing ← NEW standalone page
+└── Settings
+
+Settings Sub-tabs:
+├── Organization
+├── Members
+├── Requests
+└── Groups
+```
+
+---
+
+### Feature: Image Optimization for Storage Savings (2025-11-28)
+
+**Goal:** Reduce image storage size to save MongoDB space and improve performance.
+
+**Implementation:**
+
+1. **New Image Optimizer Service** (`apps/backend/src/services/image_optimizer.js`):
+   - Uses Sharp library for high-performance image processing
+   - Automatic compression with configurable quality (default: 80%)
+   - Converts images to WebP format for 40-80% size reduction
+   - Resizes images larger than 1920x1920 (preserves aspect ratio)
+   - Strips EXIF metadata for privacy and smaller file size
+   - Graceful fallback to original if optimization fails
+
+2. **Updated Image Download** (`apps/backend/src/services/line_service.js`):
+   - Modified `download_and_save_image()` to use ImageOptimizer
+   - Changed from streaming to buffer approach for optimization
+   - Added detailed logging of space savings
+   - Extended GridFS metadata with optimization stats:
+     - `original_size` - Original file size in bytes
+     - `original_content_type` - Original MIME type
+     - `optimized` - Whether optimization was applied
+     - `size_reduction` - Bytes saved
+     - `reduction_percent` - Percentage reduction
+     - `original_dimensions` - Original width x height
+     - `optimized_dimensions` - Final width x height
+     - `processing_time_ms` - Optimization duration
+
+3. **Configuration Options** (optional):
+   - `skip_optimization` - Save original without compression
+   - `max_width` / `max_height` - Custom max dimensions
+   - `quality` - Compression quality 1-100
+
+**Dependencies Added:**
+- `sharp` ^0.34.5 - High-performance image processing library
+
+**Expected Results:**
+- 40-80% reduction in image storage size
+- Faster image loading due to smaller files
+- Better MongoDB quota utilization
+- Preserved visual quality at 80% compression
+
+---
+
+### Simplify: Unified Member Invite Code System (2025-11-28)
+
+**Change:** Simplified the invite code system from multiple InviteCode documents to a single `member_invite_code` per organization.
+
+**Before:**
+- `/settings/invite-codes` page for creating/managing multiple invite codes
+- Each code had `auto_approve`, `max_uses`, `expiry`, etc.
+- Complex InviteCode model with many features
+
+**After:**
+- Single `member_invite_code` field on Organization model
+- Format: `XXXX-XXXX` (simple 8-character code)
+- Always requires owner approval (no auto-approve)
+- Code displayed on `/settings/organization` page
+- Regenerate button for admins
+
+**Changes Made:**
+
+1. **Organization Model** (`apps/backend/src/models/organization.js`):
+   - Added `member_invite_code` and `member_invite_code_generated_at` fields
+   - Added `generate_member_invite_code()` static method
+   - Added `find_by_member_invite_code()` static method
+   - Added `generate_new_member_invite_code()` instance method
+   - Updated `get_summary()` to include member invite code
+
+2. **Backend Routes** (`apps/backend/src/routes/organization_routes.js`):
+   - Updated `POST /validate-code` to validate against `member_invite_code`
+   - Updated `POST /join` to always create join request (no auto-approve)
+   - Added `GET /:orgId/member-invite-code` endpoint
+   - Added `POST /:orgId/member-invite-code/regenerate` endpoint
+   - Removed InviteCode dependency from join flow
+
+3. **Frontend Pages**:
+   - Updated `/join-org` to remove auto_approve logic
+   - Updated `/settings/organization` to show member invite code with copy/regenerate
+   - Removed `/settings/invite-codes` from navigation tabs
+
+4. **New API Routes**:
+   - `GET /api/organizations/[orgId]/member-invite-code`
+   - `POST /api/organizations/[orgId]/member-invite-code/regenerate`
+
+**New Flow:**
+```
+1. Owner creates organization → member_invite_code auto-generated
+2. Owner shares code (e.g., "ABCD-1234") with team member
+3. Team member goes to /join-org, enters code
+4. Join request created → Owner sees notification in /settings/join-requests
+5. Owner approves → Team member added to organization
+```
+
+---
+
+### Fix: Login Error Handling with Specific Error Messages (2025-11-28)
+
+**Issue:** Login showed generic "Login failed. Please try again." for all errors, including:
+- Wrong password
+- No account found
+- MongoDB quota exceeded (512 MB limit reached)
+- Account locked
+- Server errors
+
+**Root Cause:**
+1. Backend caught all errors and returned generic message
+2. MongoDB write operations (updating `last_login`, `login_attempts`) blocked login when DB was full
+3. Frontend didn't differentiate between error types
+
+**Fixes Applied:**
+
+1. **Backend** (`apps/backend/src/routes/auth_routes.js`):
+   - Made metadata updates non-blocking (login succeeds even if DB can't update `last_login`)
+   - Added specific error codes for each scenario:
+     - `USER_NOT_FOUND` - No account with this email
+     - `INVALID_PASSWORD` - Wrong password
+     - `ACCOUNT_LOCKED` - Too many failed attempts (includes `lock_minutes`)
+     - `ACCOUNT_INACTIVE` - Account disabled
+     - `DATABASE_ERROR` - Database temporarily unavailable
+     - `DATABASE_QUOTA_EXCEEDED` - MongoDB storage full
+     - `SERVER_ERROR` - Unexpected errors
+   - Wrapped all non-critical operations in try-catch to prevent login failure
+
+2. **Frontend API Route** (`apps/web/src/app/api/auth/login/route.ts`):
+   - Forward full error details from backend (error_code, lock_minutes, status)
+   - Added `CONNECTION_ERROR` for when backend is unreachable
+
+3. **Frontend Login Page** (`apps/web/src/app/login/page.tsx`):
+   - Added `LoginError` interface for typed error state
+   - Created `get_error_config()` function to map error codes to user-friendly messages
+   - Each error type has:
+     - Specific icon (UserX, Lock, Database, WifiOff, ServerCrash, AlertCircle)
+     - Appropriate color (red for errors, amber for warnings)
+     - Helpful message with actionable guidance
+   - Warning variant (amber) for recoverable issues (locked account, DB unavailable)
+   - Destructive variant (red) for user errors (wrong password, no account)
+
+**Error Messages:**
+
+| Error Code | Icon | Message |
+|------------|------|---------|
+| `USER_NOT_FOUND` | UserX | No account found with this email. Please check your email or sign up. |
+| `INVALID_PASSWORD` | Lock | Incorrect password. Please try again or reset your password. |
+| `ACCOUNT_LOCKED` | Lock | Too many failed attempts. Account locked for X minutes. |
+| `ACCOUNT_INACTIVE` | UserX | Your account is not active. Please contact support. |
+| `DATABASE_ERROR` | Database | Service temporarily unavailable. Please try again. |
+| `CONNECTION_ERROR` | WifiOff | Unable to connect to server. Please check your connection. |
+| `SERVER_ERROR` | ServerCrash | An unexpected error occurred. Please try again. |
+
+---
+
+## [Previous] - 2025-11-27
+
+### Fix: Organization Owner Showing "Unknown" (2025-11-27)
+
+**Issue:** Organization owner was showing "Unknown" on the organization settings page.
+
+**Root Cause:**
+- Backend GET `/api/organizations/:orgId` endpoint was not populating the `created_by` field
+- Frontend was always rendering the owner section without checking if owner data exists
+
+**Fixes Applied:**
+
+1. **Backend** (`apps/backend/src/routes/organization_routes.js`):
+   - Added `.populate('created_by', 'name email avatar_url')` to fetch owner details
+   - Added `member_count` from `OrganizationMember.countDocuments()`
+   - Added `room_count` from `Room.countDocuments()`
+   - Returns owner object with `_id`, `name`, `email` (or `null` if not populated)
+
+2. **Frontend** (`apps/web/src/app/dashboard/settings/organization/page.tsx`):
+   - Added conditional rendering: `{profile.owner && profile.owner.name && (...)}`
+   - Fixed null safety in `can_edit()` function: `profile.owner?._id === user.id`
+   - Owner card now only renders when owner data is available
+
+---
+
+### Feature: Complete End-to-End Code System (2025-11-27)
+
+Implemented complete end-to-end system with **TWO codes per organization**:
+1. **Bot Activation Code** (`ORG-XXXX-XXXX`) - Connect LINE groups to organization
+2. **Member Invite Code** (`XXXX-XXXX`) - Invite team members to organization
+
+---
+
+## Complete User Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  ORGANIZATION CREATION                                                   │
+│  ─────────────────────                                                   │
+│  1. User registers → Organization created                                │
+│  2. Bot Activation Code auto-generated: ORG-K7NP-3QWX                   │
+│  3. Member Invite Code auto-generated: ABCD-EFGH                        │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                 ┌──────────────────┼──────────────────┐
+                 ▼                                     ▼
+┌────────────────────────────────┐   ┌────────────────────────────────────┐
+│  BOT ACTIVATION FLOW           │   │  MEMBER INVITE FLOW                │
+│  ─────────────────────         │   │  ─────────────────                 │
+│  1. Add LINE Bot to group      │   │  1. Share invite code: ABCD-EFGH   │
+│  2. Paste: ORG-K7NP-3QWX       │   │  2. Member goes to /dashboard      │
+│  3. Bot replies: ✅ Success!   │   │     /join-org                      │
+│  4. Group appears in dashboard │   │  3. Enter code → Join request      │
+│                                │   │  4. Admin approves → Member joined │
+└────────────────────────────────┘   └────────────────────────────────────┘
+```
+
+---
+
+## Implementation Details
+
+### 1. Auto-Generate Both Codes on Registration
+
+**File:** `apps/backend/src/routes/auth_routes.js`
+
+When a user registers:
+- Organization is created
+- Bot Activation Code is auto-generated (`organization.generate_new_activation_code()`)
+- Default Invite Code is auto-created (`InviteCode.create_invite_code()`)
+
+### 2. Organization Settings Page Shows Both Codes
+
+**File:** `apps/web/src/app/dashboard/settings/organization/page.tsx`
+
+Added "Quick Setup" section with two side-by-side cards:
+- **Bot Activation Code** (green) - With copy & regenerate buttons
+- **Member Invite Code** (blue) - With copy button & link to manage codes
+
+### 3. Groups Page Empty State
+
+**File:** `apps/web/src/app/dashboard/groups/page.tsx`
+
+When no groups connected, shows:
+- Activation code with copy button
+- Instructions on how to use
+- Option to join another organization
+
+### 4. LINE Webhook Handler
+
+**File:** `apps/backend/src/handlers/line_webhook_handler.js`
+
+- Detects activation code pattern: `/^ORG-[A-Z0-9]{4}-[A-Z0-9]{4}$/i`
+- Links group to organization
+- Sends confirmation message to LINE group
+
+---
+
+## Code Formats
+
+| Code Type | Format | Example | Purpose |
+|-----------|--------|---------|---------|
+| Bot Activation | `ORG-XXXX-XXXX` | `ORG-K7NP-3QWX` | Connect LINE groups |
+| Member Invite | `XXXX-XXXX` | `ABCD-EFGH` | Invite team members |
+
+Both formats use clear characters (excluding 0, O, 1, I) to avoid confusion.
+
+---
+
+### UI: Simplified Sidebar with Settings Sub-Topbar (2025-11-27)
+
+Completely redesigned the dashboard navigation for better UX:
+
+**Before:**
+- Sidebar had nested expandable Settings menu with 7 sub-items
+- Cluttered and required extra click to see settings options
+
+**After:**
+- **Simplified Sidebar** with only 3 main items: Groups, Join Org, Settings
+- **Settings Sub-Topbar** appears when on any settings page with horizontal tabs
+- **Admin Panel** link at bottom (only for `super_admin`)
+- Cleaner, more professional look
+
+**New Navigation Structure:**
+```
+Sidebar:                    Settings Sub-Topbar (horizontal):
+├── Groups                  Organization | Members | Invites | Requests | Groups | Billing | Audit
+├── Join Org
+├── Settings ──────────────►
+├── Admin (super_admin only)
+└── Sign Out
+```
+
+**Changes:**
+- Removed nested expandable settings menu from sidebar
+- Added `SETTINGS_TABS` configuration array for easy maintenance
+- Settings sub-topbar only appears on `/dashboard/settings/*` pages
+- Tabs are horizontally scrollable on mobile
+- Active tab has white background with green text and shadow
+- Reduced sidebar default width from 200px to 180px
+
+**File Modified:**
+- `apps/web/src/app/dashboard/layout.tsx` - Complete rewrite
+
+---
+
+### Removed: LINE Accounts Settings Page (2025-11-27)
+
+Removed `/dashboard/settings/line-accounts` page and sidebar link as this feature is not needed in the current phase.
+
+**Files Removed:**
+- `apps/web/src/app/dashboard/settings/line-accounts/page.tsx`
+
+**Files Modified:**
+- `apps/web/src/app/dashboard/layout.tsx` - Removed sidebar link and unused `MessageSquare` import
+
+---
+
+### Fix: Members List and Groups List API Errors (2025-11-27)
+
+#### Issues
+1. **Failed to list members** at `/dashboard/settings/members` - Error: `members.map is not a function`
+2. **Failed to load groups** at `/dashboard/settings/groups` - Error: `No "mutation"-procedure on path "groups.list"`
+
+#### Root Causes
+
+**Issue 1 - Members list:**
+`OrganizationMember.get_organization_members()` returns `{ members, total, pages, page, limit }` (an object with pagination), but the route code was calling `.map()` directly on the result, expecting an array.
+
+**Issue 2 - Groups list:**
+Frontend was using `POST` method for `groups.list`, but it's defined as `.query()` in tRPC which requires `GET`. tRPC treats POST as mutation.
+
+#### Fixes Applied
+
+1. **Backend** (`apps/backend/src/routes/organization_routes.js`):
+   - Updated GET `/api/organizations/:orgId/members` to correctly destructure `result.members`
+   - Added pagination support via query params (page, limit, role, status)
+   - Response now includes `pagination` object alongside `members` array
+
+2. **Frontend** (`apps/web/src/app/dashboard/settings/groups/page.tsx`):
+   - Changed `fetch_groups()` from POST to GET method
+   - Pass input params as URL-encoded JSON via `?input=` query parameter (tRPC query convention)
+
+---
+
+### Added: Makefile for Development (2025-11-26)
+
+Created `Makefile` at project root for convenient development commands:
+
+| Command | Description |
+|---------|-------------|
+| `make dev` | Start both frontend and backend |
+| `make dev-web` | Start only frontend (Next.js) |
+| `make dev-backend` | Start only backend (Express) |
+| `make restart` | Clean cache and restart servers |
+| `make clean` | Remove node_modules and build artifacts |
+| `make clean-all` | Deep clean including .next cache |
+| `make clean-cache` | Quick clean Next.js cache only |
+| `make install` | Install all dependencies |
+| `make build` | Build for production |
+| `make lint` | Run linters |
+| `make test` | Run tests |
+| `make reset` | Full reset (clean-all + install) |
+
+---
+
+### Fix: Organization Context Not Loading (2025-11-26)
+
+#### Issue
+Settings pages showed infinite loading because `organization?.id` was always undefined in the auth context.
+
+#### Root Cause
+1. Backend `GET /api/auth/verify` only returned `user` data, not `organization` or `organizations`
+2. Frontend verify proxy only forwarded `user`, not organization data
+
+#### Fixes Applied
+1. **Backend** (`apps/backend/src/routes/auth_routes.js`):
+   - Updated verify endpoint to fetch and return organization memberships
+   - Returns `organization` (current) and `organizations` (all memberships)
+
+2. **Frontend** (`apps/web/src/app/api/auth/verify/route.ts`):
+   - Forward `organization` and `organizations` from backend response to frontend
+
+---
+
+### Fix: 401 Authentication Errors Across Dashboard Pages (2025-11-26)
+
+#### Issue
+Multiple dashboard pages were returning 401 Unauthorized errors when fetching data from tRPC endpoints.
+
+#### Root Cause
+1. **tRPC Proxy**: The proxy route (`apps/web/src/app/api/trpc/[trpc]/route.ts`) was **not forwarding authentication cookies** to the backend
+2. **Frontend fetch calls**: Several pages were missing `credentials: 'include'` in their fetch options
+
+#### Fixes Applied
+
+**1. tRPC Proxy (Critical)**
+Updated `apps/web/src/app/api/trpc/[trpc]/route.ts` to forward authentication headers:
+- Forward `Cookie` header for session authentication
+- Forward `Authorization` header for Bearer token auth
+- Forward `X-Organization-Id` header for organization context
+
+**2. Dashboard Pages Fixed**
+Added `credentials: 'include'` to fetch calls in:
+- `apps/web/src/app/dashboard/groups/page.tsx` - Groups listing
+- `apps/web/src/app/dashboard/sessions/page.tsx` - Individual sessions
+- `apps/web/src/app/dashboard/sessions/[sessionId]/page.tsx` - Session detail + generate summary
+- `apps/web/src/app/dashboard/groups/[lineRoomId]/sessions/page.tsx` - Group sessions
+
+**3. Pages Already Correct** (verified)
+- All admin pages (`/admin/*`) - already had credentials
+- All settings pages (`/dashboard/settings/*`) - already had credentials
+- Login/register/auth pages - use direct REST API proxies
+
+---
+
+### Fix: Missing REST API Proxy Routes (2025-11-26)
+
+#### Issue
+Settings pages at `/dashboard/settings/**` showed infinite loading because REST API proxy routes did not exist. The frontend was calling `/api/organizations/*` endpoints, but no proxy routes were forwarding these to the backend.
+
+#### Fixes Applied
+Created all missing REST API proxy routes with proper cookie/auth header forwarding:
+
+**Organization Management**
+- `apps/web/src/app/api/organizations/[orgId]/route.ts` - GET/PUT organization
+- `apps/web/src/app/api/organizations/[orgId]/members/route.ts` - GET/POST members
+- `apps/web/src/app/api/organizations/[orgId]/members/[memberId]/route.ts` - DELETE member
+- `apps/web/src/app/api/organizations/[orgId]/members/[memberId]/role/route.ts` - PUT role
+- `apps/web/src/app/api/organizations/[orgId]/audit-logs/route.ts` - GET audit logs
+- `apps/web/src/app/api/organizations/[orgId]/invite-codes/route.ts` - GET/POST invite codes
+- `apps/web/src/app/api/organizations/[orgId]/invite-codes/[codeId]/route.ts` - DELETE code
+- `apps/web/src/app/api/organizations/[orgId]/join-requests/route.ts` - GET join requests
+- `apps/web/src/app/api/organizations/[orgId]/join-requests/[requestId]/approve/route.ts` - POST approve
+- `apps/web/src/app/api/organizations/[orgId]/join-requests/[requestId]/reject/route.ts` - POST reject
+
+**User Join Requests**
+- `apps/web/src/app/api/organizations/my-requests/route.ts` - GET user's requests
+- `apps/web/src/app/api/organizations/my-requests/[requestId]/route.ts` - DELETE cancel
+- `apps/web/src/app/api/organizations/validate-code/route.ts` - POST validate code
+- `apps/web/src/app/api/organizations/join/route.ts` - POST join organization
+
+**Auth**
+- `apps/web/src/app/api/auth/switch-organization/route.ts` - POST switch organization
+
+All routes forward `Cookie` and `Authorization` headers to the backend.
+
+---
+
+### Organization Settings Pages COMPLETE (2025-11-26)
+
+#### Summary
+All organization settings pages have been implemented, providing comprehensive management capabilities for organization admins. This completes the remaining Phase 3 and Phase 4 UI requirements.
+
+#### Pages Created
+
+| Page | Path | Description |
+|------|------|-------------|
+| Organization Profile | `/dashboard/settings/organization` | View/edit org name, description, plan info |
+| LINE Accounts | `/dashboard/settings/line-accounts` | Manage LINE Official Account integrations |
+| Billing & Usage | `/dashboard/settings/billing` | View plan, usage stats, available plans |
+| Audit Logs | `/dashboard/settings/audit` | Organization-specific activity logs |
+| Group Assignment | `/dashboard/settings/groups` | Bulk selection UI for group assignment |
+
+#### Files Created/Updated
+
+| File | Description |
+|------|-------------|
+| `apps/web/src/app/dashboard/settings/organization/page.tsx` | Org profile with edit capability |
+| `apps/web/src/app/dashboard/settings/line-accounts/page.tsx` | LINE OA management with add/remove |
+| `apps/web/src/app/dashboard/settings/billing/page.tsx` | Billing info, usage bars, plan comparison |
+| `apps/web/src/app/dashboard/settings/audit/page.tsx` | Org audit logs with filters/export |
+| `apps/web/src/app/dashboard/settings/groups/page.tsx` | Added bulk selection checkboxes |
+| `apps/web/src/app/dashboard/layout.tsx` | Added new settings links to sidebar |
+
+#### Features Implemented
+
+**Organization Profile**:
+- View organization name, slug, plan, status
+- Edit name and description (admin/owner only)
+- View owner info and plan features
+- Trial period warning display
+
+**LINE Accounts Management**:
+- List connected LINE Official Accounts
+- Add new LINE channel (ID, secret, access token)
+- Copy webhook URL for LINE console
+- Remove connected accounts
+- Setup guide with step-by-step instructions
+
+**Billing & Usage**:
+- Current plan display with features
+- Usage progress bars (messages, summaries, members, rooms)
+- Color-coded usage warnings (green/yellow/red)
+- Plan comparison grid
+- Upgrade/downgrade buttons (UI only)
+
+**Organization Audit Logs**:
+- Filterable activity logs by category
+- Search across actions/descriptions/users
+- CSV export capability
+- Pagination with page controls
+- Permission-gated (admin/owner only)
+
+**Group Assignment Enhancement**:
+- Bulk selection with checkboxes
+- Select all checkbox
+- Bulk action bar with category/priority dropdowns
+- Selection count display
+
+---
+
+### Phase 4 COMPLETE - Admin Back-Office (2025-11-26)
+
+#### Summary
+Phase 4 is now **100% complete**. Full admin back-office UI has been implemented with super admin dashboard, organization management, user management, audit logs, and group assignment pages.
+
+#### Checklist Status
+
+| ID | Item | Status |
+|----|------|--------|
+| 4.1.1 | Create `/admin` layout with super_admin guard | ✅ DONE |
+| 4.1.2 | Create platform dashboard with stats | ✅ DONE |
+| 4.1.3 | Create organizations list page | ✅ DONE |
+| 4.1.4 | Create organization detail/edit pages | ✅ DONE |
+| 4.1.5 | Create platform users page | ✅ DONE |
+| 4.1.6 | Create platform audit logs page | ✅ DONE |
+| 4.2.1 | Create `/settings` layout with org context | ✅ DONE (already existed) |
+| 4.2.7 | Create group assignment page | ✅ DONE |
+
+#### Super Admin Dashboard (/admin/*)
+
+```
+/admin
+├── /dashboard              # Platform overview & stats
+├── /organizations          # List all organizations
+│   └── /[orgId]           # Organization details
+├── /users                  # All platform users
+├── /audit                  # Platform audit logs
+└── /settings              # Platform settings (future)
+```
+
+**Features implemented**:
+- Platform-wide statistics (orgs, users, sessions, summaries)
+- Organization suspend/activate
+- User ban/unban
+- Plan management (change org plans)
+- Audit log viewer with CSV export
+- Search & filtering across all views
+
+#### Files Created
+
+| File | Description |
+|------|-------------|
+| `apps/web/src/app/admin/layout.tsx` | Admin layout with super_admin guard, dark sidebar |
+| `apps/web/src/app/admin/page.tsx` | Platform dashboard with stats & quick actions |
+| `apps/web/src/app/admin/organizations/page.tsx` | Organizations list with search, filter, actions |
+| `apps/web/src/app/admin/organizations/[orgId]/page.tsx` | Organization detail with members, usage, plan edit |
+| `apps/web/src/app/admin/users/page.tsx` | Platform users list with ban/unban |
+| `apps/web/src/app/admin/audit/page.tsx` | Audit logs with filters, pagination, CSV export |
+| `apps/web/src/app/dashboard/settings/groups/page.tsx` | Group assignment UI for organization admins |
+
+#### Group Assignment UI
+
+Organization admins can now:
+- View all LINE groups in their organization
+- Assign categories (sales, support, operations, marketing, other)
+- Set priority levels (critical, high, normal, low)
+- Add custom display names
+- Tag groups with custom labels
+- Add internal notes
+
+---
+
+### Phase 3 COMPLETE - LINE Group Mapping (2025-11-26)
+
+#### Summary
+Phase 3 is now **100% complete**. LINE groups are now auto-mapped to organizations, with full assignment/categorization capabilities for business organization.
+
+#### Checklist Status
+
+| ID | Item | Status |
+|----|------|--------|
+| 3.1.1 | Update Room model with organization_id | ✅ DONE (already existed) |
+| 3.1.2 | Update Room model with assignment fields | ✅ DONE |
+| 3.1.3 | Add migration support for existing rooms | ✅ DONE (fallback in webhook) |
+| 3.2.1 | Create groups router with list/assign endpoints | ✅ DONE |
+| 3.2.2 | Create bulk assignment endpoint | ✅ DONE |
+| 3.2.3 | Add category statistics endpoint | ✅ DONE |
+| 3.3.1 | Update webhook handler for auto-mapping | ✅ DONE |
+| 3.3.2 | Update room creation to include organization_id | ✅ DONE |
+| 3.4.x | Frontend UI components | ✅ DONE (Phase 4) |
+
+#### Room Model Updates
+
+```javascript
+// New assignment fields added to Room model:
+assignment: {
+  category: 'sales' | 'support' | 'operations' | 'marketing' | 'other' | 'unassigned',
+  tags: string[],
+  custom_name: string,     // Override LINE group name
+  priority: 'low' | 'normal' | 'high' | 'critical',
+  assigned_to: User[],     // Users monitoring this group
+  notes: string
+}
+
+// New indexes for category queries:
+{ organization_id: 1, line_room_id: 1 }  // Unique per org
+{ organization_id: 1, 'assignment.category': 1 }
+{ organization_id: 1, 'assignment.priority': 1 }
+{ organization_id: 1, 'assignment.tags': 1 }
+```
+
+#### Groups Router Endpoints
+
+```javascript
+groups.list            // List groups with category/priority/tag filters
+groups.get             // Get group details with recent sessions
+groups.assign          // Assign group to category with metadata
+groups.bulkAssign      // Bulk assign multiple groups
+groups.updateSettings  // Update group settings
+groups.categoryStats   // Get statistics by category
+groups.getTags         // Get all unique tags in org
+groups.toggleArchive   // Archive/unarchive group
+```
+
+#### Webhook Auto-Mapping
+
+```javascript
+// LINE webhook now auto-maps new rooms to organizations:
+if (owner.organization_id) {
+  room = await Room.find_or_create_room_with_org(
+    owner.organization_id,  // Auto-map to org
+    owner._id,
+    lineRoomId,
+    roomName,
+    roomType
+  );
+  // Sessions also auto-mapped
+  session = await ChatSession.create_session_with_org(
+    owner.organization_id,
+    room._id,
+    ...
+  );
+}
+```
+
+#### Organization Filtering Applied
+
+All tRPC routers now filter data by organization:
+
+| Router | Filter Applied |
+|--------|---------------|
+| sessions.list | `organization_id: ctx.organization._id` |
+| sessions.stats | Aggregation with org filter |
+| rooms.list | `organization_id: ctx.organization._id` |
+| rooms.stats | Aggregation with org filter |
+| groups.* | All endpoints scoped to organization |
+
+#### Files Modified
+
+- `apps/backend/src/models/room.js`
+  - Added `assignment` schema with category, tags, priority, assigned_to, notes
+  - Added new indexes for category-based queries
+  - Updated `get_room_summary()` to include assignment + display_name
+
+- `apps/backend/src/trpc/routers/groups.js` (NEW)
+  - Full CRUD for group assignment and categorization
+  - Category statistics endpoint
+  - Tag management endpoint
+
+- `apps/backend/src/trpc/app.js`
+  - Registered groups router
+
+- `apps/backend/src/handlers/line_webhook_handler.js`
+  - Auto-mapping new rooms/sessions to organization
+  - Fallback for legacy owners without organization
+
+- `apps/backend/src/trpc/routers/sessions.js`
+  - Added `organization_id` filter to list and stats queries
+
+- `apps/backend/src/trpc/routers/rooms.js`
+  - Added `organization_id` filter to list and stats queries
+
+---
+
+### Phase 2 COMPLETE - Permission System Implementation (2025-11-26)
+
+#### Summary
+Phase 2 is now **100% complete**. All tRPC routers have been updated with organization-scoped permission middleware, the platform admin router has been created, and TypeScript types are available for frontend.
+
+#### Checklist Status
+
+| ID | Item | Status |
+|----|------|--------|
+| 2.1.1 | Create `permissions.js` with all constants | ✅ DONE |
+| 2.1.2 | Create permission TypeScript types for frontend | ✅ DONE |
+| 2.2.1 | Create `middleware.js` with requirePermission | ✅ DONE |
+| 2.2.2 | Create `getOrgContext` helper | ✅ DONE |
+| 2.2.3 | Add organization header parsing to tRPC context | ✅ DONE |
+| 2.3.1 | Create `abac.js` policy engine | ✅ DONE |
+| 2.3.2 | Implement session access policies | ✅ DONE |
+| 2.3.3 | Implement summary generation policies | ✅ DONE |
+| 2.3.4 | Implement member invite policies | ✅ DONE |
+| 2.4.1 | Update sessions router with permissions | ✅ DONE |
+| 2.4.2 | Update rooms router with permissions | ✅ DONE |
+| 2.4.3 | Update messages router with permissions | ✅ DONE |
+| 2.4.4 | Update summaries router with permissions | ✅ DONE |
+| 2.5.1 | Create organization router with admin procedures | ✅ DONE |
+| 2.5.2 | Create platform admin router (super_admin only) | ✅ DONE |
+| 2.6.1 | Add audit logging to all mutations | ✅ DONE |
+| 2.6.2 | Create audit log model and storage | ✅ DONE |
+
+#### Files Created/Updated
+
+**New Files:**
+- `apps/backend/src/trpc/routers/platform.js` - Super admin management endpoints
+- `apps/web/src/types/permissions.ts` - TypeScript permission types for frontend
+
+**Updated tRPC Routers (with org permissions + audit logging):**
+- `apps/backend/src/trpc/routers/sessions.js`
+  - All endpoints now use `withPermission()` middleware
+  - Added ABAC policy checks for mutations
+  - Added audit logging for close, delete, generateSummary
+  - Added new `delete` endpoint
+
+- `apps/backend/src/trpc/routers/rooms.js`
+  - All endpoints now use `withPermission()` middleware
+  - Added audit logging for updateSettings, archive
+
+- `apps/backend/src/trpc/routers/messages.js`
+  - All endpoints now use `withPermission()` middleware
+  - Added audit logging for exportMessages
+
+- `apps/backend/src/trpc/routers/summaries.js`
+  - All endpoints now use `withPermission()` middleware
+  - Added audit logging for export, delete, update
+  - Added new `delete` and `update` endpoints
+
+- `apps/backend/src/trpc/app.js`
+  - Added platform router registration
+
+#### Platform Admin Router Endpoints
+
+```javascript
+// Super admin only - requires platform_role === 'super_admin'
+platform.listOrganizations   // List all organizations with filters
+platform.getOrganization     // Get org details with members + activity
+platform.suspendOrganization // Suspend an organization
+platform.activateOrganization // Activate suspended org
+platform.updateOrganizationPlan // Change org plan + limits
+platform.listUsers           // List all platform users
+platform.getUser             // Get user details with memberships
+platform.updateUserRole      // Change user platform role
+platform.banUser             // Ban user from platform
+platform.unbanUser           // Unban user
+platform.getAuditLogs        // View platform-wide audit logs
+platform.getStats            // Platform statistics dashboard
+```
+
+#### Permission Mapping Applied
+
+| Router | Endpoint | Permission |
+|--------|----------|------------|
+| sessions | list | org:sessions:list |
+| sessions | get | org:sessions:view |
+| sessions | close | org:sessions:delete |
+| sessions | stats | org:analytics:view |
+| sessions | generateSummary | org:summaries:generate |
+| sessions | delete | org:sessions:delete |
+| rooms | list | org:groups:list |
+| rooms | get | org:groups:view |
+| rooms | updateSettings | org:groups:settings |
+| rooms | archive | org:groups:settings |
+| rooms | stats | org:analytics:view |
+| messages | getSessionMessages | org:messages:list |
+| messages | searchMessages | org:messages:search |
+| messages | exportMessages | org:sessions:export |
+| summaries | list | org:summaries:list |
+| summaries | get | org:summaries:view |
+| summaries | delete | org:summaries:delete |
+| summaries | update | org:summaries:edit |
+
+---
+
+### QA Report - Phase 2 Initial Verification (2025-11-26)
+
+#### Initial Status (Before Completion)
+Phase 2 was approximately **60% complete**. The core authentication and permission modules were implemented, but the tRPC routers had NOT been updated to use organization-scoped permission middleware.
+
+#### Initial Checklist Status
+
+| ID | Item | Status |
+|----|------|--------|
+| 2.1.1 | Create `permissions.js` with all constants | ✅ DONE |
+| 2.1.2 | Create permission TypeScript types for frontend | ❌ MISSING |
+| 2.2.1 | Create `middleware.js` with requirePermission | ✅ DONE |
+| 2.2.2 | Create `getOrgContext` helper | ✅ DONE |
+| 2.2.3 | Add organization header parsing to tRPC context | ✅ DONE |
+| 2.3.1 | Create `abac.js` policy engine | ✅ DONE |
+| 2.3.2 | Implement session access policies | ✅ DONE |
+| 2.3.3 | Implement summary generation policies | ✅ DONE |
+| 2.3.4 | Implement member invite policies | ✅ DONE |
+| 2.4.1 | Update sessions router with permissions | ❌ NOT DONE |
+| 2.4.2 | Update rooms router with permissions | ❌ NOT DONE |
+| 2.4.3 | Update messages router with permissions | ❌ NOT DONE |
+| 2.4.4 | Update summaries router with permissions | ❌ NOT DONE |
+| 2.5.1 | Create organization router with admin procedures | ✅ DONE |
+| 2.5.2 | Create platform admin router (super_admin only) | ❌ MISSING |
+| 2.6.1 | Add audit logging to all mutations | ⚠️ PARTIAL |
+| 2.6.2 | Create audit log model and storage | ✅ DONE |
+
+#### Critical Gaps
+
+1. **tRPC Routers NOT Using Permission Middleware**
+   - `sessions.js`: Uses `loggedProcedure` instead of `orgProcedure` with permission checks
+   - `rooms.js`: Uses `loggedProcedure` instead of `orgProcedure` with permission checks
+   - `messages.js`: Uses `loggedProcedure` instead of `orgProcedure` with permission checks
+   - `summaries.js`: Uses `loggedProcedure` instead of `orgProcedure` with permission checks
+   - **Impact**: Data is NOT scoped to organization - users can potentially access any data
+
+2. **No Platform Admin Router**
+   - Super admin management endpoints are missing
+   - Required for platform-wide org management
+
+3. **No Frontend TypeScript Types**
+   - No `apps/web/src/types/permissions.ts` file
+   - Frontend cannot do type-safe permission checks
+
+4. **Audit Logging Incomplete**
+   - Only `organization_routes.js` has audit logging
+   - tRPC routers mutations lack audit logging
+
+#### Files Verified
+
+**Auth Module (All Present & Valid):**
+- `apps/backend/src/auth/permissions.js` ✅
+- `apps/backend/src/auth/middleware.js` ✅
+- `apps/backend/src/auth/abac.js` ✅
+- `apps/backend/src/auth/index.js` ✅
+
+**Models (All Present):**
+- `apps/backend/src/models/audit_log.js` ✅
+- `apps/backend/src/models/index.js` (exports AuditLog) ✅
+
+**tRPC (Middleware Created, Routers NOT Updated):**
+- `apps/backend/src/trpc/index.js` ✅ Has new procedures
+- `apps/backend/src/trpc/context.js` ✅ Has auth context
+- `apps/backend/src/trpc/routers/sessions.js` ❌ Needs permission update
+- `apps/backend/src/trpc/routers/rooms.js` ❌ Needs permission update
+- `apps/backend/src/trpc/routers/messages.js` ❌ Needs permission update
+- `apps/backend/src/trpc/routers/summaries.js` ❌ Needs permission update
+
+**Routes:**
+- `apps/backend/src/routes/organization_routes.js` ✅ Has permissions + audit
+
+**Frontend Pages (All Present):**
+- `apps/web/src/app/dashboard/settings/members/page.tsx` ✅
+- `apps/web/src/app/dashboard/settings/invite-codes/page.tsx` ✅
+- `apps/web/src/app/dashboard/settings/join-requests/page.tsx` ✅
+- `apps/web/src/app/dashboard/join-org/page.tsx` ✅
+
+#### Required Work to Complete Phase 2
+
+1. **Update tRPC Routers** (Priority: HIGH)
+   - Replace `loggedProcedure` with `orgProcedure` or `withPermission()`
+   - Add organization filter to all queries
+   - Add ABAC policy checks for mutations
+
+2. **Create Platform Admin Router** (Priority: MEDIUM)
+   - Super admin endpoints for org management
+   - User impersonation, suspension, etc.
+
+3. **Create Frontend TypeScript Types** (Priority: LOW)
+   - Export permission constants for frontend
+   - Type-safe permission checking
+
+4. **Add Audit Logging to tRPC Mutations** (Priority: MEDIUM)
+   - Log all session, room, message, summary mutations
+
+---
+
+### Implementation - Phase 2 (Part 2): RBAC + ABAC Permission System
+
+#### Overview
+Implemented a comprehensive Role-Based Access Control (RBAC) and Attribute-Based Access Control (ABAC) permission system for fine-grained access control across the platform.
+
+#### Auth Module Created
+
+**Permission Constants** (`apps/backend/src/auth/permissions.js`):
+```javascript
+// Platform-level roles
+- super_admin: Full platform access
+- support: Read-only platform access
+
+// Organization-level roles
+- org_owner: Full org control, billing
+- org_admin: Manage org users & settings
+- org_member: Standard access
+- org_viewer: Read-only access
+
+// Permission categories
+- platform:* (orgs, users, settings, audit, billing)
+- org:* (settings, members, invite_codes, join_requests, line_accounts, groups, sessions, messages, summaries, analytics, audit)
+```
+
+**Permission Middleware** (`apps/backend/src/auth/middleware.js`):
+- `require_auth()` - JWT authentication middleware
+- `require_permission(permission)` - Check specific permission
+- `require_role(allowed_roles)` - Check role membership
+- `require_org_admin()` - Shortcut for admin/owner check
+- `require_org_owner()` - Shortcut for owner-only check
+- `load_org_context()` - Load organization without permission check
+- `get_org_context(user_id, org_id)` - Get user's org membership
+
+**ABAC Policy Engine** (`apps/backend/src/auth/abac.js`):
+```javascript
+// Policies implemented
+- session:access - Users can only access sessions from their org
+- session:delete - Only owners/admins can delete
+- summary:generate - Check AI enabled + monthly limits
+- member:invite - Check user limit
+- line_account:connect - Check LINE account limit
+- group:create - Check group limit
+- message:send - Check monthly message limit
+- resource:access - Generic ownership check
+- invite_code:create - Admin/owner only
+- join_request:approve - Check user limit before approving
+
+// Plan limits
+- free: 5 users, 1 LINE account, 10 groups, 1k messages/mo, no AI
+- starter: 10 users, 2 LINE accounts, 50 groups, 10k messages/mo
+- professional: 50 users, 10 LINE accounts, 500 groups, 100k messages/mo
+- enterprise: 1000 users, 100 LINE accounts, 10k groups, unlimited
+```
+
+**Audit Log Model** (`apps/backend/src/models/audit_log.js`):
+```javascript
+// Tracks all significant actions
+- organization_id, user_id, action, category
+- resource_type, resource_id
+- metadata, changes (before/after)
+- ip_address, user_agent, request_id
+- status (success/failure/error)
+- Auto-expires after 90 days (configurable)
+
+// Static methods
+- log(data) - Create audit entry
+- log_success/log_failure/log_error
+- get_org_logs(org_id, options) - Paginated org logs
+- get_user_logs(user_id, options) - Paginated user logs
+- get_recent_activity(org_id, limit)
+- get_action_stats(org_id, since)
+```
+
+**Updated tRPC Context** (`apps/backend/src/trpc/context.js`):
+- Auto-loads user from JWT token
+- Auto-loads organization context
+- Added utility functions:
+  - `utils.log_audit(data)` - Log to audit
+  - `utils.check_permission(permission)` - Check permission
+  - `utils.evaluate_policy(policy, resource)` - ABAC check
+  - `utils.get_client_ip()` - Get client IP
+
+#### Files Created
+- `apps/backend/src/auth/permissions.js`
+- `apps/backend/src/auth/middleware.js`
+- `apps/backend/src/auth/abac.js`
+- `apps/backend/src/auth/index.js`
+- `apps/backend/src/models/audit_log.js`
+
+#### Files Modified
+- `apps/backend/src/models/index.js` - Added AuditLog export
+- `apps/backend/src/trpc/context.js` - Added auth + utilities
+
+---
+
+### Implementation - Phase 2 (Part 3): Permission Integration
+
+#### Overview
+Integrated the RBAC + ABAC permission system into Express routes and tRPC procedures, with comprehensive audit logging.
+
+#### Organization Routes Updated (`apps/backend/src/routes/organization_routes.js`)
+
+**Replaced local middleware with auth module:**
+- Removed local `authenticate` and `requireOrgAdmin` middleware
+- Now using `require_auth()`, `require_permission()` from auth module
+
+**Permission checks added:**
+```javascript
+// Each route now has proper permission checks
+GET /:orgId                    -> org:settings:view
+POST /:orgId/invite-codes      -> org:invite_codes:create
+GET /:orgId/invite-codes       -> org:invite_codes:list
+DELETE /:orgId/invite-codes/:id -> org:invite_codes:disable
+GET /:orgId/join-requests      -> org:join_requests:list
+POST /:orgId/join-requests/:id/approve -> org:join_requests:approve
+POST /:orgId/join-requests/:id/reject  -> org:join_requests:reject
+GET /:orgId/members            -> org:members:list
+PUT /:orgId/members/:id/role   -> org:members:roles
+DELETE /:orgId/members/:id     -> org:members:remove
+GET /:orgId/audit-logs         -> org:audit:view
+```
+
+**ABAC policy checks added:**
+- `invite_code:create` - Validates admin role
+- `join_request:approve` - Checks user limit before approving
+- `member:invite` - Checks user limit for auto-approve joins
+
+**Audit logging added to all mutation endpoints:**
+- `invite_code:created`, `invite_code:disabled`
+- `join_request:approved`, `join_request:rejected`, `join_request:cancelled`
+- `member:role_changed`, `member:removed`, `member:joined_auto`
+
+**New endpoints added:**
+- `GET /:orgId/audit-logs` - Paginated audit log viewer
+- `GET /:orgId/audit-logs/recent` - Recent activity for dashboard
+
+#### tRPC Index Updated (`apps/backend/src/trpc/index.js`)
+
+**New middleware:**
+- `authMiddleware` - Requires authentication
+- `orgContextMiddleware` - Requires organization context
+- `superAdminMiddleware` - Requires super_admin role
+- `orgAdminMiddleware` - Requires org_owner or org_admin role
+- `createPermissionMiddleware(permission)` - Factory for permission checks
+
+**New procedures:**
+- `authedProcedure` - Requires login
+- `orgProcedure` - Requires auth + org context
+- `superAdminProcedure` - Requires super_admin role
+- `withPermission(permission)` - Create procedure with specific permission
+
+**Legacy support:**
+- `adminProcedure` kept for backward compatibility, now requires org admin role
+
+#### Files Modified
+- `apps/backend/src/routes/organization_routes.js` - Full permission integration
+- `apps/backend/src/trpc/index.js` - New auth middleware and procedures
+
+---
 
 ### Bug Fix - Organization Slug Auto-Generation
 

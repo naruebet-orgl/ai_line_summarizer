@@ -52,7 +52,8 @@ export default function GroupSessionsPage() {
               }
             }
           })
-        )}`
+        )}`,
+        { credentials: 'include' }
       );
 
       if (!response.ok) {
@@ -92,7 +93,9 @@ export default function GroupSessionsPage() {
           // Fallback: fetch group info from rooms endpoint when no sessions exist
           try {
             console.log('🔄 Fetching room info from rooms.getAiGroups...');
-            const roomResponse = await fetch(`/api/trpc/rooms.getAiGroups?batch=1&input={"0":{"json":{}}}`);
+            const roomResponse = await fetch(`/api/trpc/rooms.getAiGroups?batch=1&input={"0":{"json":{}}}`, {
+              credentials: 'include'
+            });
             const roomData = await roomResponse.json();
 
             console.log('Room API response:', roomData);

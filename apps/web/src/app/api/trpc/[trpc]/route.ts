@@ -21,16 +21,35 @@ async function handleTRPCRequest(request: NextRequest) {
   const backendTRPCUrl = `${backendUrl}/api/trpc${url.pathname.replace('/api/trpc', '')}${url.search}`
 
   console.log(`Proxying TRPC request to: ${backendTRPCUrl}`)
-  console.log(`Backend URL configured as: ${backendUrl}`)
-  console.log(`NODE_ENV: ${process.env.NODE_ENV}`)
+
+  // Build headers - forward authentication headers from incoming request
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  }
+
+  // Forward cookies for authentication
+  const cookies = request.headers.get('cookie')
+  if (cookies) {
+    headers['Cookie'] = cookies
+  }
+
+  // Forward Authorization header if present
+  const authorization = request.headers.get('authorization')
+  if (authorization) {
+    headers['Authorization'] = authorization
+  }
+
+  // Forward organization context header if present
+  const orgId = request.headers.get('x-organization-id')
+  if (orgId) {
+    headers['X-Organization-Id'] = orgId
+  }
 
   try {
     const backendResponse = await fetch(backendTRPCUrl, {
       method: request.method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
+      headers,
       body: request.method !== 'GET' ? await request.text() : undefined,
     })
 

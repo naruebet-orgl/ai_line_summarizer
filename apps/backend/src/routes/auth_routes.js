@@ -67,6 +67,14 @@ router.post('/register', async (req, res) => {
 
     console.log(`🏢 Created organization: ${organization.name} (${organization.slug})`);
 
+    // Generate Bot Activation Code for the organization
+    await organization.generate_new_activation_code();
+    console.log(`🔑 Generated bot activation code: ${organization.activation_code}`);
+
+    // Generate Member Invite Code for the organization
+    await organization.generate_new_member_invite_code();
+    console.log(`🎟️ Generated member invite code: ${organization.member_invite_code}`);
+
     // Add user as org_owner
     await OrganizationMember.add_member(
       organization._id,
@@ -121,6 +129,8 @@ router.post('/register', async (req, res) => {
  * @route POST /api/auth/login
  * @description Login user
  * @access Public
+ * @returns {Object} User data with tokens on success, or error with specific code
+ * @error_codes MISSING_CREDENTIALS, INVALID_CREDENTIALS, ACCOUNT_LOCKED, ACCOUNT_INACTIVE, DATABASE_ERROR, SERVER_ERROR
  */
 router.post('/login', async (req, res) => {
   console.log('🔐 POST /api/auth/login - User login attempt');
@@ -133,18 +143,30 @@ router.post('/login', async (req, res) => {
       console.log('❌ Missing email or password');
       return res.status(400).json({
         success: false,
-        error: 'Email and password are required'
+        error: 'Email and password are required',
+        error_code: 'MISSING_CREDENTIALS'
       });
     }
 
     // Find user with password
-    const user = await User.find_by_email_with_password(email);
+    let user;
+    try {
+      user = await User.find_by_email_with_password(email);
+    } catch (dbError) {
+      console.error('❌ Database error finding user:', dbError.message);
+      return res.status(503).json({
+        success: false,
+        error: 'Database temporarily unavailable. Please try again.',
+        error_code: 'DATABASE_ERROR'
+      });
+    }
 
     if (!user) {
       console.log(`❌ User not found: ${email}`);
       return res.status(401).json({
         success: false,
-        error: 'Invalid email or password'
+        error: 'No account found with this email address',
+        error_code: 'USER_NOT_FOUND'
       });
     }
 
@@ -154,7 +176,9 @@ router.post('/login', async (req, res) => {
       const lockTime = Math.ceil((user.lock_until - Date.now()) / 1000 / 60);
       return res.status(423).json({
         success: false,
-        error: `Account is locked. Please try again in ${lockTime} minutes.`
+        error: `Account is locked due to too many failed attempts. Try again in ${lockTime} minutes.`,
+        error_code: 'ACCOUNT_LOCKED',
+        lock_minutes: lockTime
       });
     }
 
@@ -163,7 +187,9 @@ router.post('/login', async (req, res) => {
       console.log(`❌ Account not active: ${email}, status: ${user.status}`);
       return res.status(403).json({
         success: false,
-        error: 'Your account is not active. Please contact support.'
+        error: 'Your account is not active. Please contact support.',
+        error_code: 'ACCOUNT_INACTIVE',
+        status: user.status
       });
     }
 
@@ -173,30 +199,53 @@ router.post('/login', async (req, res) => {
     if (!isPasswordValid) {
       console.log(`❌ Invalid password for: ${email}`);
 
-      // Increment login attempts
-      await user.increment_login_attempts();
+      // Increment login attempts (non-blocking - don't fail login if this fails)
+      try {
+        await user.increment_login_attempts();
+      } catch (updateError) {
+        console.warn('⚠️ Failed to increment login attempts (non-critical):', updateError.message);
+      }
 
       return res.status(401).json({
         success: false,
-        error: 'Invalid email or password'
+        error: 'Incorrect password. Please try again.',
+        error_code: 'INVALID_PASSWORD'
       });
     }
 
-    // Reset login attempts on successful login
-    await user.reset_login_attempts();
+    // Reset login attempts on successful login (non-blocking)
+    try {
+      await user.reset_login_attempts();
+    } catch (updateError) {
+      console.warn('⚠️ Failed to reset login attempts (non-critical):', updateError.message);
+    }
 
     // Get user's organizations
-    const memberships = await OrganizationMember.get_user_memberships(user._id);
+    let memberships = [];
+    try {
+      memberships = await OrganizationMember.get_user_memberships(user._id);
+    } catch (membershipError) {
+      console.warn('⚠️ Failed to fetch memberships (non-critical):', membershipError.message);
+    }
 
-    // Get current organization details
+    // Get current organization details (non-blocking)
     let currentOrganization = null;
-    if (user.current_organization_id) {
-      currentOrganization = await Organization.findById(user.current_organization_id);
-    } else if (memberships.length > 0) {
-      // Auto-select first organization if none set
-      currentOrganization = memberships[0].organization_id;
-      user.current_organization_id = currentOrganization._id;
-      await user.save();
+    try {
+      if (user.current_organization_id) {
+        currentOrganization = await Organization.findById(user.current_organization_id);
+      } else if (memberships.length > 0) {
+        // Auto-select first organization if none set
+        currentOrganization = memberships[0].organization_id;
+        user.current_organization_id = currentOrganization._id;
+        // Save is non-blocking - don't fail login if DB is full
+        try {
+          await user.save();
+        } catch (saveError) {
+          console.warn('⚠️ Failed to save user current org (non-critical):', saveError.message);
+        }
+      }
+    } catch (orgError) {
+      console.warn('⚠️ Failed to fetch organization (non-critical):', orgError.message);
     }
 
     // Generate tokens
@@ -220,9 +269,20 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Login error:', error);
+
+    // Check for MongoDB quota error
+    if (error.code === 8000 || error.message?.includes('space quota')) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database storage limit reached. Please contact support.',
+        error_code: 'DATABASE_QUOTA_EXCEEDED'
+      });
+    }
+
     res.status(500).json({
       success: false,
-      error: 'Login failed. Please try again.'
+      error: 'An unexpected error occurred. Please try again.',
+      error_code: 'SERVER_ERROR'
     });
   }
 });
@@ -484,12 +544,36 @@ router.get('/verify', async (req, res) => {
       });
     }
 
+    // Get user's organizations
+    const memberships = await OrganizationMember.get_user_memberships(user._id);
+
+    // Get current organization details
+    let currentOrganization = null;
+    if (user.current_organization_id) {
+      currentOrganization = await Organization.findById(user.current_organization_id);
+    } else if (memberships.length > 0) {
+      // Auto-select first organization if none set
+      currentOrganization = memberships[0].organization_id;
+      user.current_organization_id = currentOrganization._id;
+      await user.save();
+    }
+
     console.log(`✅ Token verified for: ${user.email}`);
 
     res.json({
       success: true,
       authenticated: true,
-      user: user.to_safe_object()
+      user: user.to_safe_object(),
+      organization: currentOrganization?.get_summary() || null,
+      organizations: memberships.map(m => ({
+        id: m.organization_id._id,
+        name: m.organization_id.name,
+        slug: m.organization_id.slug,
+        logo_url: m.organization_id.logo_url,
+        plan: m.organization_id.plan,
+        role: m.role,
+        is_current: m.organization_id._id.toString() === user.current_organization_id?.toString()
+      }))
     });
   } catch (error) {
     console.error('❌ Token verification error:', error);

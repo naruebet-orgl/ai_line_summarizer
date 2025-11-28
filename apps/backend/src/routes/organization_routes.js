@@ -5,68 +5,36 @@
 
 const express = require('express');
 const router = express.Router();
-const { Organization, OrganizationMember, InviteCode, JoinRequest, User } = require('../models');
-const jwt_service = require('../services/jwt_service');
+const { Organization, OrganizationMember, JoinRequest, User, AuditLog } = require('../models');
+const { require_auth, require_permission, require_org_admin, load_org_context } = require('../auth/middleware');
+const { evaluate_policy } = require('../auth/abac');
 
 // ════════════════════════════════════════════════════════════════
-// Middleware
+// Helper Functions
 // ════════════════════════════════════════════════════════════════
 
 /**
- * Authenticate user middleware
+ * Log an audit event
  */
-const authenticate = async (req, res, next) => {
+async function log_audit(req, action, data = {}) {
   try {
-    const token = req.cookies?.access_token || req.headers.authorization?.replace('Bearer ', '');
-
-    if (!token) {
-      return res.status(401).json({ success: false, error: 'Authentication required' });
-    }
-
-    const decoded = jwt_service.verify_access_token(token);
-    const user = await User.findById(decoded.user_id);
-
-    if (!user) {
-      return res.status(401).json({ success: false, error: 'User not found' });
-    }
-
-    req.user = user;
-    next();
-  } catch (error) {
-    console.error('❌ Auth middleware error:', error.message);
-    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
-  }
-};
-
-/**
- * Check if user is org admin or owner
- */
-const requireOrgAdmin = async (req, res, next) => {
-  try {
-    const organizationId = req.params.orgId || req.body.organization_id;
-
-    if (!organizationId) {
-      return res.status(400).json({ success: false, error: 'Organization ID required' });
-    }
-
-    const membership = await OrganizationMember.findOne({
-      user_id: req.user._id,
-      organization_id: organizationId,
-      status: 'active'
+    await AuditLog.log({
+      user_id: req.user?._id,
+      organization_id: req.organization?._id || data.organization_id,
+      action,
+      resource_type: data.resource_type,
+      resource_id: data.resource_id,
+      description: data.description,
+      metadata: data.metadata,
+      ip_address: req.ip || req.headers?.['x-forwarded-for'],
+      user_agent: req.headers?.['user-agent'],
+      status: data.status || 'success',
+      error_message: data.error_message
     });
-
-    if (!membership || !['org_owner', 'org_admin'].includes(membership.role)) {
-      return res.status(403).json({ success: false, error: 'Admin access required' });
-    }
-
-    req.membership = membership;
-    req.organizationId = organizationId;
-    next();
   } catch (error) {
-    console.error('❌ Org admin check error:', error);
-    return res.status(500).json({ success: false, error: 'Authorization check failed' });
+    console.error('❌ Audit log error:', error);
   }
-};
+}
 
 // ════════════════════════════════════════════════════════════════
 // Organization Info Routes
@@ -77,34 +45,50 @@ const requireOrgAdmin = async (req, res, next) => {
  * @description Get organization details
  * @access Private (org member)
  */
-router.get('/:orgId', authenticate, async (req, res) => {
+router.get('/:orgId', require_auth(), require_permission('org:settings:view'), async (req, res) => {
   console.log(`🏢 GET /api/organizations/${req.params.orgId}`);
 
   try {
-    const { orgId } = req.params;
+    // Populate created_by to get owner details
+    const organization = await Organization.findById(req.params.orgId)
+      .populate('created_by', 'name email avatar_url');
 
-    // Check membership
-    const membership = await OrganizationMember.findOne({
-      user_id: req.user._id,
-      organization_id: orgId,
-      status: 'active'
-    });
-
-    if (!membership) {
-      return res.status(403).json({ success: false, error: 'Not a member of this organization' });
-    }
-
-    const organization = await Organization.findById(orgId);
     if (!organization) {
       return res.status(404).json({ success: false, error: 'Organization not found' });
     }
 
+    // Get member count
+    const member_count = await OrganizationMember.countDocuments({
+      organization_id: req.params.orgId,
+      status: 'active'
+    });
+
+    // Get room count (if Room model exists)
+    let room_count = 0;
+    try {
+      const Room = require('../models/room');
+      room_count = await Room.countDocuments({ organization_id: req.params.orgId });
+    } catch (e) {
+      console.log('Room model not available for counting');
+    }
+
+    const orgSummary = organization.get_summary();
+
     res.json({
       success: true,
-      organization: organization.get_summary(),
+      organization: {
+        ...orgSummary,
+        owner: organization.created_by ? {
+          _id: organization.created_by._id,
+          name: organization.created_by.name,
+          email: organization.created_by.email
+        } : null,
+        member_count,
+        room_count
+      },
       membership: {
-        role: membership.role,
-        joined_at: membership.joined_at
+        role: req.org_role,
+        joined_at: req.membership?.joined_at
       }
     });
   } catch (error) {
@@ -122,14 +106,25 @@ router.get('/:orgId', authenticate, async (req, res) => {
  * @description Generate a new invite code
  * @access Private (org admin/owner)
  */
-router.post('/:orgId/invite-codes', authenticate, requireOrgAdmin, async (req, res) => {
+router.post('/:orgId/invite-codes', require_auth(), require_permission('org:invite_codes:create'), async (req, res) => {
   console.log(`🎟️ POST /api/organizations/${req.params.orgId}/invite-codes`);
 
   try {
     const { name, default_role, max_uses, expires_in_days, auto_approve } = req.body;
 
+    // ABAC check for invite code creation
+    const policy_result = await evaluate_policy('invite_code:create', req.user, req.organization, {
+      organization: req.organization,
+      org_role: req.org_role,
+      is_super_admin: req.is_super_admin
+    });
+
+    if (!policy_result.allowed) {
+      return res.status(403).json({ success: false, error: policy_result.reason });
+    }
+
     const inviteCode = await InviteCode.create_invite_code(
-      req.organizationId,
+      req.params.orgId,
       req.user._id,
       {
         name,
@@ -140,6 +135,14 @@ router.post('/:orgId/invite-codes', authenticate, requireOrgAdmin, async (req, r
       }
     );
 
+    // Audit log
+    await log_audit(req, 'invite_code:created', {
+      resource_type: 'invite_code',
+      resource_id: inviteCode._id,
+      description: `Created invite code ${inviteCode.code}`,
+      metadata: { code: inviteCode.code, default_role, auto_approve }
+    });
+
     res.status(201).json({
       success: true,
       message: 'Invite code created',
@@ -147,6 +150,10 @@ router.post('/:orgId/invite-codes', authenticate, requireOrgAdmin, async (req, r
     });
   } catch (error) {
     console.error('❌ Create invite code error:', error);
+    await log_audit(req, 'invite_code:create_failed', {
+      status: 'failure',
+      error_message: error.message
+    });
     res.status(500).json({ success: false, error: error.message || 'Failed to create invite code' });
   }
 });
@@ -156,14 +163,14 @@ router.post('/:orgId/invite-codes', authenticate, requireOrgAdmin, async (req, r
  * @description List all invite codes for organization
  * @access Private (org admin/owner)
  */
-router.get('/:orgId/invite-codes', authenticate, requireOrgAdmin, async (req, res) => {
+router.get('/:orgId/invite-codes', require_auth(), require_permission('org:invite_codes:list'), async (req, res) => {
   console.log(`📋 GET /api/organizations/${req.params.orgId}/invite-codes`);
 
   try {
     const { active_only } = req.query;
 
     const inviteCodes = await InviteCode.get_by_organization(
-      req.organizationId,
+      req.params.orgId,
       active_only === 'true'
     );
 
@@ -182,11 +189,19 @@ router.get('/:orgId/invite-codes', authenticate, requireOrgAdmin, async (req, re
  * @description Disable an invite code
  * @access Private (org admin/owner)
  */
-router.delete('/:orgId/invite-codes/:codeId', authenticate, requireOrgAdmin, async (req, res) => {
+router.delete('/:orgId/invite-codes/:codeId', require_auth(), require_permission('org:invite_codes:disable'), async (req, res) => {
   console.log(`🚫 DELETE /api/organizations/${req.params.orgId}/invite-codes/${req.params.codeId}`);
 
   try {
-    const inviteCode = await InviteCode.disable_code(req.params.codeId, req.organizationId);
+    const inviteCode = await InviteCode.disable_code(req.params.codeId, req.params.orgId);
+
+    // Audit log
+    await log_audit(req, 'invite_code:disabled', {
+      resource_type: 'invite_code',
+      resource_id: inviteCode._id,
+      description: `Disabled invite code ${inviteCode.code}`,
+      metadata: { code: inviteCode.code }
+    });
 
     res.json({
       success: true,
@@ -208,14 +223,14 @@ router.delete('/:orgId/invite-codes/:codeId', authenticate, requireOrgAdmin, asy
  * @description List join requests for organization
  * @access Private (org admin/owner)
  */
-router.get('/:orgId/join-requests', authenticate, requireOrgAdmin, async (req, res) => {
+router.get('/:orgId/join-requests', require_auth(), require_permission('org:join_requests:list'), async (req, res) => {
   console.log(`📋 GET /api/organizations/${req.params.orgId}/join-requests`);
 
   try {
     const { status, page = 1, limit = 20 } = req.query;
 
     const result = await JoinRequest.get_requests_for_organization(
-      req.organizationId,
+      req.params.orgId,
       {
         status: status || null,
         limit: parseInt(limit),
@@ -242,11 +257,11 @@ router.get('/:orgId/join-requests', authenticate, requireOrgAdmin, async (req, r
  * @description Get count of pending join requests
  * @access Private (org admin/owner)
  */
-router.get('/:orgId/join-requests/pending-count', authenticate, requireOrgAdmin, async (req, res) => {
+router.get('/:orgId/join-requests/pending-count', require_auth(), require_permission('org:join_requests:list'), async (req, res) => {
   console.log(`🔢 GET /api/organizations/${req.params.orgId}/join-requests/pending-count`);
 
   try {
-    const count = await JoinRequest.count_pending(req.organizationId);
+    const count = await JoinRequest.count_pending(req.params.orgId);
 
     res.json({
       success: true,
@@ -263,11 +278,41 @@ router.get('/:orgId/join-requests/pending-count', authenticate, requireOrgAdmin,
  * @description Approve a join request
  * @access Private (org admin/owner)
  */
-router.post('/:orgId/join-requests/:requestId/approve', authenticate, requireOrgAdmin, async (req, res) => {
+router.post('/:orgId/join-requests/:requestId/approve', require_auth(), require_permission('org:join_requests:approve'), async (req, res) => {
   console.log(`✅ POST /api/organizations/${req.params.orgId}/join-requests/${req.params.requestId}/approve`);
 
   try {
+    // Get the request first
+    const joinRequest = await JoinRequest.findById(req.params.requestId).populate('user_id', 'name email');
+
+    if (!joinRequest) {
+      return res.status(404).json({ success: false, error: 'Join request not found' });
+    }
+
+    // ABAC check - verifies user limit
+    const policy_result = await evaluate_policy('join_request:approve', req.user, joinRequest, {
+      organization: req.organization,
+      org_role: req.org_role,
+      is_super_admin: req.is_super_admin
+    });
+
+    if (!policy_result.allowed) {
+      return res.status(403).json({ success: false, error: policy_result.reason });
+    }
+
     const result = await JoinRequest.approve_request(req.params.requestId, req.user._id);
+
+    // Audit log
+    await log_audit(req, 'join_request:approved', {
+      resource_type: 'join_request',
+      resource_id: joinRequest._id,
+      description: `Approved join request from ${joinRequest.user_id?.name || 'user'}`,
+      metadata: {
+        user_id: joinRequest.user_id?._id,
+        user_email: joinRequest.user_id?.email,
+        role: joinRequest.requested_role
+      }
+    });
 
     res.json({
       success: true,
@@ -276,6 +321,11 @@ router.post('/:orgId/join-requests/:requestId/approve', authenticate, requireOrg
     });
   } catch (error) {
     console.error('❌ Approve request error:', error);
+    await log_audit(req, 'join_request:approve_failed', {
+      resource_id: req.params.requestId,
+      status: 'failure',
+      error_message: error.message
+    });
     res.status(500).json({ success: false, error: error.message || 'Failed to approve request' });
   }
 });
@@ -285,17 +335,32 @@ router.post('/:orgId/join-requests/:requestId/approve', authenticate, requireOrg
  * @description Reject a join request
  * @access Private (org admin/owner)
  */
-router.post('/:orgId/join-requests/:requestId/reject', authenticate, requireOrgAdmin, async (req, res) => {
+router.post('/:orgId/join-requests/:requestId/reject', require_auth(), require_permission('org:join_requests:reject'), async (req, res) => {
   console.log(`❌ POST /api/organizations/${req.params.orgId}/join-requests/${req.params.requestId}/reject`);
 
   try {
     const { reason } = req.body;
+
+    // Get the request first for audit
+    const joinRequest = await JoinRequest.findById(req.params.requestId).populate('user_id', 'name email');
 
     const request = await JoinRequest.reject_request(
       req.params.requestId,
       req.user._id,
       reason
     );
+
+    // Audit log
+    await log_audit(req, 'join_request:rejected', {
+      resource_type: 'join_request',
+      resource_id: request._id,
+      description: `Rejected join request from ${joinRequest?.user_id?.name || 'user'}`,
+      metadata: {
+        user_id: joinRequest?.user_id?._id,
+        user_email: joinRequest?.user_id?.email,
+        reason
+      }
+    });
 
     res.json({
       success: true,
@@ -317,28 +382,26 @@ router.post('/:orgId/join-requests/:requestId/reject', authenticate, requireOrgA
  * @description List organization members
  * @access Private (org member)
  */
-router.get('/:orgId/members', authenticate, async (req, res) => {
+router.get('/:orgId/members', require_auth(), require_permission('org:members:list'), async (req, res) => {
   console.log(`👥 GET /api/organizations/${req.params.orgId}/members`);
 
   try {
-    const { orgId } = req.params;
+    // Parse pagination options from query params
+    const options = {
+      page: parseInt(req.query.page) || 1,
+      limit: parseInt(req.query.limit) || 20,
+      role: req.query.role || null,
+      status: req.query.status || 'active'
+    };
 
-    // Check membership
-    const membership = await OrganizationMember.findOne({
-      user_id: req.user._id,
-      organization_id: orgId,
-      status: 'active'
-    });
+    // get_organization_members returns { members, total, pages, page, limit }
+    const result = await OrganizationMember.get_organization_members(req.params.orgId, options);
 
-    if (!membership) {
-      return res.status(403).json({ success: false, error: 'Not a member of this organization' });
-    }
-
-    const members = await OrganizationMember.get_organization_members(orgId);
+    console.log(`✅ Found ${result.members.length} members (total: ${result.total})`);
 
     res.json({
       success: true,
-      members: members.map(m => ({
+      members: result.members.map(m => ({
         id: m._id,
         user: {
           id: m.user_id._id,
@@ -350,7 +413,13 @@ router.get('/:orgId/members', authenticate, async (req, res) => {
         status: m.status,
         joined_at: m.joined_at,
         last_active_at: m.last_active_at
-      }))
+      })),
+      pagination: {
+        total: result.total,
+        pages: result.pages,
+        page: result.page,
+        limit: result.limit
+      }
     });
   } catch (error) {
     console.error('❌ List members error:', error);
@@ -363,7 +432,7 @@ router.get('/:orgId/members', authenticate, async (req, res) => {
  * @description Change a member's role
  * @access Private (org owner only)
  */
-router.put('/:orgId/members/:memberId/role', authenticate, requireOrgAdmin, async (req, res) => {
+router.put('/:orgId/members/:memberId/role', require_auth(), require_permission('org:members:roles'), async (req, res) => {
   console.log(`🔄 PUT /api/organizations/${req.params.orgId}/members/${req.params.memberId}/role`);
 
   try {
@@ -374,12 +443,12 @@ router.put('/:orgId/members/:memberId/role', authenticate, requireOrgAdmin, asyn
     }
 
     // Only owner can change roles
-    if (req.membership.role !== 'org_owner') {
+    if (req.org_role !== 'org_owner' && !req.is_super_admin) {
       return res.status(403).json({ success: false, error: 'Only organization owner can change roles' });
     }
 
-    const member = await OrganizationMember.findById(req.params.memberId);
-    if (!member || member.organization_id.toString() !== req.organizationId.toString()) {
+    const member = await OrganizationMember.findById(req.params.memberId).populate('user_id', 'name email');
+    if (!member || member.organization_id.toString() !== req.params.orgId.toString()) {
       return res.status(404).json({ success: false, error: 'Member not found' });
     }
 
@@ -388,7 +457,21 @@ router.put('/:orgId/members/:memberId/role', authenticate, requireOrgAdmin, asyn
       return res.status(403).json({ success: false, error: 'Cannot change owner role' });
     }
 
-    await OrganizationMember.change_role(member.user_id, req.organizationId, role);
+    const old_role = member.role;
+    await OrganizationMember.change_role(member.user_id._id, req.params.orgId, role);
+
+    // Audit log
+    await log_audit(req, 'member:role_changed', {
+      resource_type: 'member',
+      resource_id: member._id,
+      description: `Changed ${member.user_id?.name}'s role from ${old_role} to ${role}`,
+      metadata: {
+        user_id: member.user_id._id,
+        user_email: member.user_id?.email,
+        old_role,
+        new_role: role
+      }
+    });
 
     res.json({
       success: true,
@@ -405,13 +488,13 @@ router.put('/:orgId/members/:memberId/role', authenticate, requireOrgAdmin, asyn
  * @description Remove a member from organization
  * @access Private (org admin/owner)
  */
-router.delete('/:orgId/members/:memberId', authenticate, requireOrgAdmin, async (req, res) => {
+router.delete('/:orgId/members/:memberId', require_auth(), require_permission('org:members:remove'), async (req, res) => {
   console.log(`🚫 DELETE /api/organizations/${req.params.orgId}/members/${req.params.memberId}`);
 
   try {
-    const member = await OrganizationMember.findById(req.params.memberId);
+    const member = await OrganizationMember.findById(req.params.memberId).populate('user_id', 'name email');
 
-    if (!member || member.organization_id.toString() !== req.organizationId.toString()) {
+    if (!member || member.organization_id.toString() !== req.params.orgId.toString()) {
       return res.status(404).json({ success: false, error: 'Member not found' });
     }
 
@@ -421,15 +504,27 @@ router.delete('/:orgId/members/:memberId', authenticate, requireOrgAdmin, async 
     }
 
     // Admin can only remove members/viewers, not other admins
-    if (req.membership.role === 'org_admin' && member.role === 'org_admin') {
+    if (req.org_role === 'org_admin' && member.role === 'org_admin') {
       return res.status(403).json({ success: false, error: 'Admins cannot remove other admins' });
     }
 
-    await OrganizationMember.remove_member(member.user_id, req.organizationId);
+    await OrganizationMember.remove_member(member.user_id._id, req.params.orgId);
 
     // Also update user's organizations array
-    await User.findByIdAndUpdate(member.user_id, {
-      $pull: { organizations: { organization_id: req.organizationId } }
+    await User.findByIdAndUpdate(member.user_id._id, {
+      $pull: { organizations: { organization_id: req.params.orgId } }
+    });
+
+    // Audit log
+    await log_audit(req, 'member:removed', {
+      resource_type: 'member',
+      resource_id: member._id,
+      description: `Removed ${member.user_id?.name} from organization`,
+      metadata: {
+        user_id: member.user_id._id,
+        user_email: member.user_id?.email,
+        role: member.role
+      }
     });
 
     res.json({
@@ -448,10 +543,10 @@ router.delete('/:orgId/members/:memberId', authenticate, requireOrgAdmin, async 
 
 /**
  * @route POST /api/organizations/validate-code
- * @description Validate an invite code (before joining)
+ * @description Validate a member invite code (before joining)
  * @access Private (authenticated user)
  */
-router.post('/validate-code', authenticate, async (req, res) => {
+router.post('/validate-code', require_auth(), async (req, res) => {
   console.log(`🔍 POST /api/organizations/validate-code`);
 
   try {
@@ -461,16 +556,21 @@ router.post('/validate-code', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invite code required' });
     }
 
-    const result = await InviteCode.validate_code(code);
+    // Find organization by member invite code
+    const organization = await Organization.find_by_member_invite_code(code);
 
-    if (!result.valid) {
-      return res.status(400).json({ success: false, error: result.error });
+    if (!organization) {
+      return res.status(400).json({ success: false, error: 'Invalid invite code' });
+    }
+
+    if (organization.status !== 'active' && organization.status !== 'trial') {
+      return res.status(400).json({ success: false, error: 'This organization is not active' });
     }
 
     // Check if user is already a member
     const existingMember = await OrganizationMember.findOne({
       user_id: req.user._id,
-      organization_id: result.organization._id,
+      organization_id: organization._id,
       status: 'active'
     });
 
@@ -484,7 +584,7 @@ router.post('/validate-code', authenticate, async (req, res) => {
     // Check if user already has a pending request
     const existingRequest = await JoinRequest.findOne({
       user_id: req.user._id,
-      organization_id: result.organization._id,
+      organization_id: organization._id,
       status: 'pending'
     });
 
@@ -492,12 +592,11 @@ router.post('/validate-code', authenticate, async (req, res) => {
       success: true,
       valid: true,
       organization: {
-        id: result.organization._id,
-        name: result.organization.name,
-        slug: result.organization.slug
+        id: organization._id,
+        name: organization.name,
+        slug: organization.slug
       },
-      default_role: result.invite_code.default_role,
-      auto_approve: result.invite_code.auto_approve,
+      default_role: 'org_member',
       has_pending_request: !!existingRequest
     });
   } catch (error) {
@@ -508,10 +607,10 @@ router.post('/validate-code', authenticate, async (req, res) => {
 
 /**
  * @route POST /api/organizations/join
- * @description Request to join an organization using invite code
+ * @description Request to join an organization using member invite code (always requires approval)
  * @access Private (authenticated user)
  */
-router.post('/join', authenticate, async (req, res) => {
+router.post('/join', require_auth(), async (req, res) => {
   console.log(`🚀 POST /api/organizations/join`);
 
   try {
@@ -521,68 +620,71 @@ router.post('/join', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invite code required' });
     }
 
-    // Validate code
-    const result = await InviteCode.validate_code(code);
+    // Find organization by member invite code
+    const organization = await Organization.find_by_member_invite_code(code);
 
-    if (!result.valid) {
-      return res.status(400).json({ success: false, error: result.error });
+    if (!organization) {
+      return res.status(400).json({ success: false, error: 'Invalid invite code' });
     }
 
-    const inviteCode = result.invite_code;
-    const organization = result.organization;
+    if (organization.status !== 'active' && organization.status !== 'trial') {
+      return res.status(400).json({ success: false, error: 'This organization is not active' });
+    }
 
-    // If auto-approve is enabled, add directly
-    if (inviteCode.auto_approve) {
-      // Add member directly
-      const membership = await OrganizationMember.add_member(
-        organization._id,
-        req.user._id,
-        inviteCode.default_role,
-        null // No inviter for auto-approve
-      );
+    // Check if user is already a member
+    const existingMember = await OrganizationMember.findOne({
+      user_id: req.user._id,
+      organization_id: organization._id,
+      status: 'active'
+    });
 
-      // Update user's organizations
-      await User.findByIdAndUpdate(req.user._id, {
-        $push: {
-          organizations: {
-            organization_id: organization._id,
-            role: inviteCode.default_role,
-            joined_at: new Date()
-          }
-        }
-      });
-
-      // Increment code usage
-      await InviteCode.increment_usage(inviteCode._id);
-
-      return res.status(201).json({
-        success: true,
-        message: 'Successfully joined organization',
-        status: 'approved',
-        organization: {
-          id: organization._id,
-          name: organization.name,
-          slug: organization.slug
-        },
-        role: inviteCode.default_role
+    if (existingMember) {
+      return res.status(400).json({
+        success: false,
+        error: 'You are already a member of this organization'
       });
     }
 
-    // Otherwise, create a join request for approval
+    // Check if user already has a pending request
+    const existingRequest = await JoinRequest.findOne({
+      user_id: req.user._id,
+      organization_id: organization._id,
+      status: 'pending'
+    });
+
+    if (existingRequest) {
+      return res.status(400).json({
+        success: false,
+        error: 'You already have a pending request for this organization'
+      });
+    }
+
+    // Always create a join request for owner approval (no auto-approve)
     const joinRequest = await JoinRequest.create_request(
       req.user._id,
       organization._id,
       {
-        invite_code_id: inviteCode._id,
-        invite_code: inviteCode.code,
-        requested_role: inviteCode.default_role,
+        invite_code: code.toUpperCase(),
+        requested_role: 'org_member',
         message
       }
     );
 
+    // Audit log
+    await log_audit(req, 'join_request:created', {
+      organization_id: organization._id,
+      resource_type: 'join_request',
+      resource_id: joinRequest._id,
+      description: `Requested to join organization ${organization.name}`,
+      metadata: {
+        invite_code: code.toUpperCase(),
+        requested_role: 'org_member'
+      }
+    });
+
     res.status(201).json({
       success: true,
-      message: 'Join request submitted. Waiting for approval.',
+      message: 'Join request submitted. Waiting for owner approval.',
       status: 'pending',
       request: joinRequest.get_summary(),
       organization: {
@@ -602,7 +704,7 @@ router.post('/join', authenticate, async (req, res) => {
  * @description Get user's join requests
  * @access Private (authenticated user)
  */
-router.get('/my-requests', authenticate, async (req, res) => {
+router.get('/my-requests', require_auth(), async (req, res) => {
   console.log(`📋 GET /api/organizations/my-requests`);
 
   try {
@@ -623,11 +725,19 @@ router.get('/my-requests', authenticate, async (req, res) => {
  * @description Cancel a pending join request
  * @access Private (authenticated user)
  */
-router.delete('/my-requests/:requestId', authenticate, async (req, res) => {
+router.delete('/my-requests/:requestId', require_auth(), async (req, res) => {
   console.log(`🚫 DELETE /api/organizations/my-requests/${req.params.requestId}`);
 
   try {
     const request = await JoinRequest.cancel_request(req.params.requestId, req.user._id);
+
+    // Audit log
+    await log_audit(req, 'join_request:cancelled', {
+      organization_id: request.organization_id,
+      resource_type: 'join_request',
+      resource_id: request._id,
+      description: 'Cancelled join request'
+    });
 
     res.json({
       success: true,
@@ -637,6 +747,246 @@ router.delete('/my-requests/:requestId', authenticate, async (req, res) => {
   } catch (error) {
     console.error('❌ Cancel request error:', error);
     res.status(500).json({ success: false, error: error.message || 'Failed to cancel request' });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// Audit Log Routes
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * @route GET /api/organizations/:orgId/audit-logs
+ * @description Get organization audit logs
+ * @access Private (org admin/owner)
+ */
+router.get('/:orgId/audit-logs', require_auth(), require_permission('org:audit:view'), async (req, res) => {
+  console.log(`📋 GET /api/organizations/${req.params.orgId}/audit-logs`);
+
+  try {
+    const { page = 1, limit = 50, category, action, user_id, status, start_date, end_date } = req.query;
+
+    const result = await AuditLog.get_org_logs(req.params.orgId, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      category,
+      action,
+      user_id,
+      status,
+      start_date,
+      end_date
+    });
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('❌ Get audit logs error:', error);
+    res.status(500).json({ success: false, error: 'Failed to get audit logs' });
+  }
+});
+
+/**
+ * @route GET /api/organizations/:orgId/audit-logs/recent
+ * @description Get recent activity for dashboard
+ * @access Private (org admin/owner)
+ */
+router.get('/:orgId/audit-logs/recent', require_auth(), require_permission('org:audit:view'), async (req, res) => {
+  console.log(`📋 GET /api/organizations/${req.params.orgId}/audit-logs/recent`);
+
+  try {
+    const { limit = 10 } = req.query;
+
+    const logs = await AuditLog.get_recent_activity(req.params.orgId, parseInt(limit));
+
+    res.json({
+      success: true,
+      logs: logs.map(log => ({
+        id: log._id,
+        action: log.action,
+        category: log.category,
+        description: log.description,
+        user: log.user_id ? {
+          id: log.user_id._id,
+          name: log.user_id.name,
+          email: log.user_id.email
+        } : null,
+        status: log.status,
+        created_at: log.created_at
+      }))
+    });
+  } catch (error) {
+    console.error('❌ Get recent activity error:', error);
+    res.status(500).json({ success: false, error: 'Failed to get recent activity' });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// Group Activation Code Routes
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * @route GET /api/organizations/:orgId/activation-code
+ * @description Get the organization's LINE group activation code
+ * @access Private (org admin/owner)
+ */
+router.get('/:orgId/activation-code', require_auth(), require_permission('org:settings:view'), async (req, res) => {
+  console.log(`🔑 GET /api/organizations/${req.params.orgId}/activation-code`);
+
+  try {
+    const org = await Organization.findById(req.params.orgId);
+
+    if (!org) {
+      return res.status(404).json({ success: false, error: 'Organization not found' });
+    }
+
+    // Generate code if it doesn't exist
+    if (!org.activation_code) {
+      console.log(`📝 Generating initial activation code for org: ${org.name}`);
+      await org.generate_new_activation_code();
+    }
+
+    res.json({
+      success: true,
+      activation_code: org.activation_code,
+      generated_at: org.activation_code_generated_at
+    });
+  } catch (error) {
+    console.error('❌ Get activation code error:', error);
+    res.status(500).json({ success: false, error: 'Failed to get activation code' });
+  }
+});
+
+/**
+ * @route POST /api/organizations/:orgId/activation-code/regenerate
+ * @description Regenerate the organization's LINE group activation code
+ * @access Private (org admin/owner)
+ */
+router.post('/:orgId/activation-code/regenerate', require_auth(), require_permission('org:settings:edit'), async (req, res) => {
+  console.log(`🔄 POST /api/organizations/${req.params.orgId}/activation-code/regenerate`);
+
+  try {
+    const org = await Organization.findById(req.params.orgId);
+
+    if (!org) {
+      return res.status(404).json({ success: false, error: 'Organization not found' });
+    }
+
+    const oldCode = org.activation_code;
+    await org.generate_new_activation_code();
+
+    // Audit log
+    await log_audit(req, 'org:activation_code:regenerate', {
+      organization_id: org._id,
+      resource_type: 'organization',
+      resource_id: org._id,
+      description: `Regenerated activation code for ${org.name}`,
+      metadata: {
+        old_code: oldCode ? `${oldCode.substring(0, 4)}****` : null,
+        new_code: `${org.activation_code.substring(0, 4)}****`
+      }
+    });
+
+    res.json({
+      success: true,
+      activation_code: org.activation_code,
+      generated_at: org.activation_code_generated_at,
+      message: 'Activation code regenerated successfully'
+    });
+  } catch (error) {
+    console.error('❌ Regenerate activation code error:', error);
+    res.status(500).json({ success: false, error: 'Failed to regenerate activation code' });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// Member Invite Code Routes
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * @route GET /api/organizations/:orgId/member-invite-code
+ * @description Get the organization's member invite code
+ * @access Private (org admin/owner)
+ */
+router.get('/:orgId/member-invite-code', require_auth(), require_permission('org:settings:view'), async (req, res) => {
+  console.log(`🎟️ GET /api/organizations/${req.params.orgId}/member-invite-code`);
+
+  try {
+    const org = await Organization.findById(req.params.orgId);
+
+    if (!org) {
+      return res.status(404).json({ success: false, error: 'Organization not found' });
+    }
+
+    // Generate code if it doesn't exist
+    if (!org.member_invite_code) {
+      console.log(`📝 Generating initial member invite code for org: ${org.name}`);
+      try {
+        await org.generate_new_member_invite_code();
+      } catch (genError) {
+        console.error('❌ Failed to generate member invite code:', genError.message);
+        // Check if it's a quota error
+        if (genError.code === 8000 || genError.message?.includes('space quota')) {
+          return res.status(503).json({
+            success: false,
+            error: 'Database storage full. Cannot generate invite code.',
+            error_code: 'DATABASE_QUOTA_EXCEEDED'
+          });
+        }
+        throw genError;
+      }
+    }
+
+    res.json({
+      success: true,
+      member_invite_code: org.member_invite_code,
+      generated_at: org.member_invite_code_generated_at
+    });
+  } catch (error) {
+    console.error('❌ Get member invite code error:', error);
+    res.status(500).json({ success: false, error: 'Failed to get member invite code' });
+  }
+});
+
+/**
+ * @route POST /api/organizations/:orgId/member-invite-code/regenerate
+ * @description Regenerate the organization's member invite code
+ * @access Private (org admin/owner)
+ */
+router.post('/:orgId/member-invite-code/regenerate', require_auth(), require_permission('org:settings:edit'), async (req, res) => {
+  console.log(`🔄 POST /api/organizations/${req.params.orgId}/member-invite-code/regenerate`);
+
+  try {
+    const org = await Organization.findById(req.params.orgId);
+
+    if (!org) {
+      return res.status(404).json({ success: false, error: 'Organization not found' });
+    }
+
+    const oldCode = org.member_invite_code;
+    await org.generate_new_member_invite_code();
+
+    // Audit log
+    await log_audit(req, 'org:member_invite_code:regenerate', {
+      organization_id: org._id,
+      resource_type: 'organization',
+      resource_id: org._id,
+      description: `Regenerated member invite code for ${org.name}`,
+      metadata: {
+        old_code: oldCode ? `${oldCode.substring(0, 4)}****` : null,
+        new_code: `${org.member_invite_code.substring(0, 4)}****`
+      }
+    });
+
+    res.json({
+      success: true,
+      member_invite_code: org.member_invite_code,
+      generated_at: org.member_invite_code_generated_at,
+      message: 'Member invite code regenerated successfully'
+    });
+  } catch (error) {
+    console.error('❌ Regenerate member invite code error:', error);
+    res.status(500).json({ success: false, error: 'Failed to regenerate member invite code' });
   }
 });
 

@@ -15,6 +15,7 @@ const Organization = require('./organization');
 const OrganizationMember = require('./organization_member');
 const InviteCode = require('./invite_code');
 const JoinRequest = require('./join_request');
+const AuditLog = require('./audit_log');
 
 module.exports = {
   Owner,
@@ -27,5 +28,6 @@ module.exports = {
   Organization,
   OrganizationMember,
   InviteCode,
-  JoinRequest
+  JoinRequest,
+  AuditLog
 };

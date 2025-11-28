@@ -6,40 +6,40 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/page": [
+    "/dashboard/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/page.js"
+      "static/chunks/app/dashboard/layout.js"
+    ],
+    "/dashboard/join-org/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/dashboard/join-org/page.js"
+    ],
+    "/api/auth/verify/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/auth/verify/route.js"
+    ],
+    "/api/organizations/my-requests/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/organizations/my-requests/route.js"
     ],
     "/login/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/login/page.js"
     ],
-    "/register/page": [
+    "/api/auth/login/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/register/page.js"
-    ],
-    "/api/auth/register/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/auth/register/route.js"
-    ],
-    "/dashboard/layout": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/dashboard/layout.js"
+      "static/chunks/app/api/auth/login/route.js"
     ],
     "/dashboard/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/dashboard/page.js"
-    ],
-    "/api/auth/verify/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/auth/verify/route.js"
     ],
     "/dashboard/groups/page": [
       "static/chunks/webpack.js",
@@ -51,15 +51,25 @@
       "static/chunks/main-app.js",
       "static/chunks/app/api/trpc/[trpc]/route.js"
     ],
-    "/dashboard/join-org/page": [
+    "/api/organizations/[orgId]/activation-code/route": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/dashboard/join-org/page.js"
+      "static/chunks/app/api/organizations/[orgId]/activation-code/route.js"
     ],
-    "/dashboard/settings/members/page": [
+    "/dashboard/settings/organization/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/dashboard/settings/members/page.js"
+      "static/chunks/app/dashboard/settings/organization/page.js"
+    ],
+    "/api/organizations/[orgId]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/organizations/[orgId]/route.js"
+    ],
+    "/api/organizations/[orgId]/invite-codes/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/organizations/[orgId]/invite-codes/route.js"
     ],
     "/dashboard/settings/invite-codes/page": [
       "static/chunks/webpack.js",
@@ -70,6 +80,46 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/dashboard/settings/join-requests/page.js"
+    ],
+    "/dashboard/settings/groups/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/dashboard/settings/groups/page.js"
+    ],
+    "/api/organizations/[orgId]/join-requests/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/organizations/[orgId]/join-requests/route.js"
+    ],
+    "/dashboard/settings/members/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/dashboard/settings/members/page.js"
+    ],
+    "/api/organizations/[orgId]/members/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/organizations/[orgId]/members/route.js"
+    ],
+    "/api/organizations/[orgId]/member-invite-code/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/organizations/[orgId]/member-invite-code/route.js"
+    ],
+    "/api/organizations/[orgId]/member-invite-code/regenerate/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/organizations/[orgId]/member-invite-code/regenerate/route.js"
+    ],
+    "/api/organizations/[orgId]/audit-logs/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/organizations/[orgId]/audit-logs/route.js"
+    ],
+    "/dashboard/billing/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/dashboard/billing/page.js"
     ],
     "/_not-found/page": [
       "static/chunks/webpack.js",
