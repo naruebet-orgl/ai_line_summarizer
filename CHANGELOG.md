@@ -2,6 +2,72 @@
 
 All notable changes to the LINE Chat Summarizer AI project will be documented in this file.
 
+## [Unreleased] - 2025-12-01
+
+### Fix: Port Conflict in Single-Container Deployments (2025-12-01)
+
+**Issue:** Both web and backend apps tried to bind to the same PORT (8080) when deployed in a single container, causing `EADDRINUSE` error.
+
+**Root Cause:** Platform-injected `PORT=8080` was read by both Next.js and Express backend simultaneously.
+
+**Solution:** Added separate port environment variables for single-container deployments:
+- `WEB_PORT` - Port for Next.js frontend (default: 3000)
+- `BACKEND_PORT` - Port for Express backend (default: 3001)
+
+**Files Changed:**
+- `apps/backend/src/config/index.js` - Added BACKEND_PORT priority over PORT
+- `apps/web/package.json` - Start script now reads WEB_PORT first
+- `.env.example` - Documented new port variables
+- `.env.production` - Documented new port variables
+
+**Usage for Single-Container Deployment:**
+```bash
+# Set different ports for each app
+export WEB_PORT=8080
+export BACKEND_PORT=3001
+pnpm run start  # Both apps run in parallel without conflict
+```
+
+---
+
+### Infrastructure: MongoDB Migration to DigitalOcean (2025-12-01)
+
+**Change:** Migrated MongoDB from MongoDB Atlas to DigitalOcean Managed MongoDB with environment-based database separation.
+
+**New MongoDB Configuration:**
+- **Host:** `drjel-ai-89bcac7b.mongo.ondigitalocean.com`
+- **Connection:** `mongodb+srv://` with TLS enabled
+
+**Environment-Specific Databases:**
+| Environment | Database Name | Branch |
+|-------------|---------------|--------|
+| Development/Internal | `internal_summarub` | `develop` |
+| Staging/Test | `staging_summarub` | `develop` |
+| Production | `production_summarub` | `production` |
+
+**Files Changed:**
+- `apps/backend/.env` - Updated to DigitalOcean MongoDB (internal_summarub)
+- `apps/web/.env.local` - Updated to DigitalOcean MongoDB (internal_summarub)
+- `.env.example` - Updated template with new connection format
+- `.env.staging` - NEW: Staging environment template
+- `.env.production` - NEW: Production environment template
+
+**Connection String Format:**
+```
+# Public (for local development, external access):
+mongodb+srv://doadmin:<password>@drjel-ai-89bcac7b.mongo.ondigitalocean.com/<database>?tls=true&authSource=admin&replicaSet=drjel-ai
+
+# VPC (for DigitalOcean deployments - more secure):
+mongodb+srv://doadmin:<password>@private-drjel-ai-8b8e68b9.mongo.ondigitalocean.com/<database>?tls=true&authSource=admin&replicaSet=drjel-ai
+```
+
+**Git Branches Created:**
+- `develop` - For development and internal testing
+- `production` - For production deployments
+- Both pushed to `summarub` remote (github.com/Organics-AI-Team/summarub)
+
+---
+
 ## [Unreleased] - 2025-11-28
 
 ### Refactor: Move Billing to Standalone Page & Remove Audit (2025-11-28)
@@ -39,18 +105,18 @@ Settings Sub-tabs:
 
 ---
 
-### Feature: Image Optimization for Storage Savings (2025-11-28)
+### Feature: LOSSLESS Image Optimization for Storage Savings (2025-11-28)
 
-**Goal:** Reduce image storage size to save MongoDB space and improve performance.
+**Goal:** Reduce image storage size WITHOUT any quality reduction.
 
 **Implementation:**
 
 1. **New Image Optimizer Service** (`apps/backend/src/services/image_optimizer.js`):
-   - Uses Sharp library for high-performance image processing
-   - Automatic compression with configurable quality (default: 80%)
-   - Converts images to WebP format for 40-80% size reduction
-   - Resizes images larger than 1920x1920 (preserves aspect ratio)
-   - Strips EXIF metadata for privacy and smaller file size
+   - Uses Sharp library with **LOSSLESS mode** - zero quality reduction
+   - **Strips EXIF metadata** (camera info, GPS, thumbnails) - saves 10-100KB per image
+   - **MozJPEG Huffman optimization** at quality 100 - saves 5-15% without quality loss
+   - **PNG compression level 9** - maximum lossless compression - saves 10-30%
+   - Keeps original format (no lossy WebP conversion)
    - Graceful fallback to original if optimization fails
 
 2. **Updated Image Download** (`apps/backend/src/services/line_service.js`):
@@ -75,11 +141,12 @@ Settings Sub-tabs:
 **Dependencies Added:**
 - `sharp` ^0.34.5 - High-performance image processing library
 
-**Expected Results:**
-- 40-80% reduction in image storage size
-- Faster image loading due to smaller files
+**Expected Results (LOSSLESS - no quality loss):**
+- 5-20% reduction from metadata stripping (EXIF, GPS, thumbnails)
+- 5-15% additional from MozJPEG Huffman optimization (JPEG)
+- 10-30% reduction for PNG (maximum lossless compression)
+- **100% original image quality preserved**
 - Better MongoDB quota utilization
-- Preserved visual quality at 80% compression
 
 ---
 

@@ -36,8 +36,10 @@ const config = {
   },
 
   // Application
+  // BACKEND_PORT takes priority for single-container deployments
+  // Falls back to PORT for traditional deployments, then default 3001
   app: {
-    port: process.env.PORT || 3001,
+    port: process.env.BACKEND_PORT || process.env.PORT || 3001,
     nodeEnv: process.env.NODE_ENV || 'development',
     frontendUrl: process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://summarizer.orglai.com' : 'http://localhost:3000'),
     backendUrl: process.env.BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://backend-production-8d6f.up.railway.app' : 'http://localhost:3001')
